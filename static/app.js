@@ -79,8 +79,13 @@ function showConfirm(message) {
 
 async function api(url, opts) {
   const res = await fetch(url, opts);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const data = isJson ? await res.json() : null;
+  if (!res.ok) {
+    const message = data && data.error ? data.error : `Request failed (${res.status})`;
+    throw new Error(message);
+  }
   return data;
 }
 

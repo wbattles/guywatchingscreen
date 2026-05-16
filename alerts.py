@@ -3,7 +3,7 @@ from datetime import timedelta
 
 from flask import jsonify, request
 
-from common import app, get_db, iso, now_utc, parse_int_field
+from common import app, get_db, get_json_object, iso, now_utc, parse_int_field
 from communication import fetch_email_recipients, send_email_alert
 
 
@@ -190,6 +190,9 @@ def api_clear_alerts():
 @app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
 def api_delete_alert(alert_id):
     db = get_db()
+    alert = db.execute("SELECT id FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+    if alert is None:
+        return jsonify({"error": "Alert not found."}), 404
     db.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
     db.commit()
     return jsonify({"ok": True})
@@ -198,7 +201,7 @@ def api_delete_alert(alert_id):
 @app.route("/api/alert-rules", methods=["POST"])
 def api_create_alert_rule():
     try:
-        data = validate_alert_json(request.get_json(force=True))
+        data = validate_alert_json(get_json_object(request))
         db = get_db()
         db.execute(
             """
@@ -242,7 +245,7 @@ def api_update_alert_rule(alert_rule_id):
     if fetch_alert_rule(alert_rule_id) is None:
         return jsonify({"error": "Alert rule not found."}), 404
     try:
-        data = validate_alert_json(request.get_json(force=True))
+        data = validate_alert_json(get_json_object(request))
         db.execute(
             """
             UPDATE alert_rules

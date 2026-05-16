@@ -6,7 +6,7 @@ from email.message import EmailMessage
 
 from flask import jsonify, request
 
-from common import app, get_db, iso, looks_like_email, now_utc
+from common import app, get_db, get_json_object, iso, looks_like_email, now_utc
 
 
 def validate_email_recipient_json(data):
@@ -114,7 +114,7 @@ def api_communication():
 @app.route("/api/communication/emails", methods=["POST"])
 def api_create_email_recipient():
     try:
-        data = validate_email_recipient_json(request.get_json(force=True))
+        data = validate_email_recipient_json(get_json_object(request))
         db = get_db()
         db.execute(
             "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, ?)",
@@ -138,7 +138,7 @@ def api_update_email_recipient(recipient_id):
     if recipient is None:
         return jsonify({"error": "Email not found."}), 404
     try:
-        data = validate_email_recipient_json(request.get_json(force=True))
+        data = validate_email_recipient_json(get_json_object(request))
         db.execute(
             "UPDATE communication_email_recipients SET email = ? WHERE id = ?",
             (data["email"], recipient_id),
@@ -154,6 +154,12 @@ def api_update_email_recipient(recipient_id):
 @app.route("/api/communication/emails/<int:recipient_id>", methods=["DELETE"])
 def api_delete_email_recipient(recipient_id):
     db = get_db()
+    recipient = db.execute(
+        "SELECT id FROM communication_email_recipients WHERE id = ?",
+        (recipient_id,),
+    ).fetchone()
+    if recipient is None:
+        return jsonify({"error": "Email not found."}), 404
     db.execute("DELETE FROM alert_rule_email_recipients WHERE recipient_id = ?", (recipient_id,))
     db.execute("DELETE FROM communication_email_recipients WHERE id = ?", (recipient_id,))
     db.commit()

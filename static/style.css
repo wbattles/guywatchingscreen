@@ -62,31 +62,15 @@ a:hover {
 }
 
 .ascii-logo {
-  margin: 0 0 4px;
+  margin: 0 0 10px;
   padding: 0;
   color: var(--magenta);
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 12px;
-  line-height: 1;
+  font-size: 16px;
+  line-height: 1.3;
   white-space: pre;
   overflow: hidden;
-  text-shadow:
-    0 0 8px rgba(255, 61, 245, 0.5),
-    2px 0 0 rgba(61, 245, 255, 0.4);
-}
-
-.page-header h1 {
-  margin: 4px 0 10px;
-  font-family: "Major Mono Display", "JetBrains Mono", monospace;
-  font-weight: 400;
-  font-size: 16px;
-  letter-spacing: 1px;
-  color: var(--fg);
-}
-
-.brand-dot {
-  color: var(--magenta);
-  margin: 0 2px;
+  text-shadow: 0 0 8px rgba(255, 61, 245, 0.5);
 }
 
 .nav {

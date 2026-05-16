@@ -162,5 +162,52 @@ class TestSchedulerClaims(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 1)
 
 
+class TestAlertEmailSanitization(unittest.TestCase):
+    def setUp(self):
+        import app
+        from common import get_db
+
+        self.app = app.app
+        self.ctx = self.app.app_context()
+        self.ctx.push()
+        db = get_db()
+        db.execute("DELETE FROM alert_rule_states")
+        db.execute("DELETE FROM alert_rule_checks")
+        db.execute("DELETE FROM alert_rule_email_recipients")
+        db.execute("DELETE FROM alerts")
+        db.execute("DELETE FROM check_results")
+        db.execute("DELETE FROM alert_rules")
+        db.execute("DELETE FROM communication_email_recipients")
+        db.execute("DELETE FROM checks")
+        db.commit()
+
+    def tearDown(self):
+        self.ctx.pop()
+
+    def test_create_alert_does_not_store_smtp_exception_text(self):
+        from common import get_db
+        import alerts
+
+        db = get_db()
+        db.execute(
+            """
+            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("Example", "https://example.com", 5, 10, "", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        check = db.execute("SELECT * FROM checks").fetchone()
+
+        with self.assertLogs("common", level="ERROR") as logs:
+            with patch("alerts.send_email_alert", side_effect=RuntimeError("SMTP auth failed for secret-password")):
+                alerts.create_alert(db, check, "failure", "Base message")
+
+        alert = db.execute("SELECT message FROM alerts").fetchone()
+        self.assertEqual(alert["message"], "Base message (email delivery failed)")
+        self.assertNotIn("secret-password", alert["message"])
+        self.assertIn("Failed to send alert email for check", logs.output[0])
+        self.assertNotIn("secret-password", logs.output[0])
+
+
 if __name__ == "__main__":
     unittest.main()

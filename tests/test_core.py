@@ -4,6 +4,7 @@ import unittest
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("FLASK_DEBUG", "1")
+os.environ.setdefault("RUN_SCHEDULER", "0")
 
 from common import looks_like_email, parse_blackout_periods, is_in_blackout, iso, now_utc
 from datetime import time
@@ -63,6 +64,21 @@ class TestIso(unittest.TestCase):
         result = iso(now_utc())
         self.assertNotIn("+", result)
         self.assertNotIn("Z", result)
+
+
+class TestAppImport(unittest.TestCase):
+    def test_app_imports(self):
+        import app
+
+        self.assertIsNotNone(app.app)
+
+    def test_health_route(self):
+        import app
+
+        client = app.app.test_client()
+        response = client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "OK")
 
 
 if __name__ == "__main__":

@@ -169,10 +169,6 @@ def alert_rule_recipient_ids(db, alert_rule_id):
 def api_alerts_screen():
     return jsonify({"alert_settings": [dict(r) for r in alert_settings_data()]})
 
-@app.route("/api/alerts")
-def api_alerts_screen():
-    return jsonify({"alert_settings": [dict(r) for r in alert_settings_data()]})
-
 @app.route("/api/alerts/<int:alert_id>")
 def api_alert_detail(alert_id):
     alert = fetch_alert(alert_id)

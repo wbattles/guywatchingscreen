@@ -41,12 +41,16 @@ function flash(message, type) {
 // --- modal ---
 
 function openModal(html) {
+  const overlay = document.getElementById('modal-overlay');
   document.getElementById('modal-content').innerHTML = html;
-  document.getElementById('modal-overlay').classList.add('open');
+  overlay.hidden = false;
+  overlay.classList.add('open');
 }
 
 function closeModal() {
-  document.getElementById('modal-overlay').classList.remove('open');
+  const overlay = document.getElementById('modal-overlay');
+  overlay.classList.remove('open');
+  overlay.hidden = true;
   document.getElementById('modal-content').innerHTML = '';
 }
 

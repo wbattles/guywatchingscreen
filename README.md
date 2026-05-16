@@ -42,11 +42,12 @@ Open `http://127.0.0.1:5000`
 - Email configuration is read from environment variables or Docker secrets. The **Communication** page now only shows the current settings and the list of recipient emails.
 - For normal local Python runs, the app will also load variables from a local `.env` file automatically.
 - Set the following environment variables (or provide Docker secrets) before starting the app:
+  - `SECRET_KEY` – Flask session signing key (required in production)
   - `SENDER_EMAIL` – address used in the **From** field
   - `SMTP_HOST` – SMTP server hostname
   - `SMTP_PORT` – SMTP server port (default `587`)
   - `SMTP_USER` – optional username for authentication
-  - `SMTP_USE_TLS` – `1` to enable TLS (default) or `0` to disable
+  - `SMTP_USE_TLS` – `1` to enable TLS (default) or `0` to disable. Only `1` and `0` are supported.
   - `SMTP_PASSWORD` – password for the SMTP server (can be provided via a Docker secret named `smtp_password`)
 - Recipients are still managed through the UI on the **Communication** page.
 - If `SMTP_PORT` or `SMTP_USE_TLS` are missing or invalid, the app falls back to safe defaults.

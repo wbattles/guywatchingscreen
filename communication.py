@@ -1,5 +1,6 @@
 import smtplib
 import os
+import sqlite3
 from pathlib import Path
 from email.message import EmailMessage
 
@@ -129,7 +130,7 @@ def create_email_recipient():
             return redirect(url_for("communication_screen"))
         except ValueError as exc:
             flash(str(exc), "error")
-        except Exception:
+        except sqlite3.IntegrityError:
             flash("That email already exists.", "error")
     return render_template("communication_email_form.html", recipient=None)
 
@@ -157,7 +158,7 @@ def edit_email_recipient(recipient_id):
             return redirect(url_for("communication_screen"))
         except ValueError as exc:
             flash(str(exc), "error")
-        except Exception:
+        except sqlite3.IntegrityError:
             flash("That email already exists.", "error")
 
     return render_template("communication_email_form.html", recipient=recipient)

@@ -35,7 +35,7 @@
               {% endfor %}
             </div>
           {% else %}
-            <p>No communication assigned.</p>
+            <p>No email recipients yet. Add one on the <a href="{{ url_for('communication_screen') }}">Communication</a> page first.</p>
           {% endif %}
         </fieldset>
 
@@ -52,7 +52,7 @@
         </div>
 
         <div class="form-actions">
-          <button type="submit" formaction="{{ url_for('alerts_screen') }}" formmethod="get">Cancel</button>
+          <button type="submit" formaction="{{ url_for('alerts_screen') }}" formmethod="get" formnovalidate>Cancel</button>
           <button type="submit">Save</button>
         </div>
       </form>

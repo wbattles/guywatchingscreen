@@ -6,15 +6,17 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=5000
+      - DATA_DIR=/app/data
+      - SECRET_KEY=${SECRET_KEY}
       - SENDER_EMAIL=${SENDER_EMAIL}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_USE_TLS=${SMTP_USE_TLS}
-      # Default: pass SMTP_PASSWORD as an environment variable.
+       # Default: pass SMTP_PASSWORD as an environment variable.
       - SMTP_PASSWORD=${SMTP_PASSWORD}
     volumes:
-      - ./monitor.db:/app/monitor.db
+      - ./data:/app/data
     # Optional: Docker secret
     # secrets:
     #   - smtp_password

@@ -1,17 +1,19 @@
+import os
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, g
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE = BASE_DIR / "monitor.db"
+DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR))
+DATABASE = DATA_DIR / "monitor.db"
 EXPECTED_STATUS = 200
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev-secret-key"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
 
 
 def get_db():
@@ -132,12 +134,25 @@ def init_db():
                 ON alerts (created_at DESC);
             """
         )
+        # Migrations: add columns to existing tables that predate them.
+        migrations = [
+            "ALTER TABLE checks ADD COLUMN alert_active INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE checks ADD COLUMN last_response_time_ms INTEGER",
+            "ALTER TABLE alerts ADD COLUMN alert_rule_id INTEGER",
+            "ALTER TABLE alerts ADD COLUMN detail TEXT",
+            "ALTER TABLE alerts ADD COLUMN delivered_via TEXT NOT NULL DEFAULT 'dashboard'",
+        ]
+        for sql in migrations:
+            try:
+                cursor.execute(sql)
+            except Exception:
+                pass  # column already exists
         db.commit()
     db.close()
 
 
 def now_local():
-    return datetime.now().replace(microsecond=0)
+    return datetime.now(timezone.utc).replace(microsecond=0)
 
 
 def iso(dt):
@@ -153,7 +168,14 @@ def parse_int_field(form, field_name, default, label):
 
 
 def looks_like_email(value):
-    return bool(value) and "@" in value and "." in value.rsplit("@", 1)[-1]
+    """Basic email sanity check. Requires local@domain.tld structure."""
+    if not value or "@" not in value:
+        return False
+    local, _, domain = value.partition("@")
+    if not local or not domain or "." not in domain:
+        return False
+    parts = domain.split(".")
+    return all(parts) and len(parts[-1]) >= 2
 
 
 def parse_blackout_periods(raw_text):
@@ -172,7 +194,7 @@ def parse_blackout_periods(raw_text):
 
 
 def is_in_blackout(raw_text, current_time=None):
-    current_time = current_time or datetime.now().time()
+    current_time = current_time or datetime.now(timezone.utc).time()
     for start, end in parse_blackout_periods(raw_text):
         if start <= end:
             if start <= current_time <= end:

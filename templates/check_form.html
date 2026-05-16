@@ -29,12 +29,12 @@
 
       <label for="check-blackout-periods">
         <span>Blackout periods</span>
-        <textarea id="check-blackout-periods" name="blackout_periods" rows="5" placeholder="23:00-06:00&#10;12:30-13:00">{{ request.form.get('blackout_periods', check.blackout_periods if check else '') }}</textarea>
+        <textarea id="check-blackout-periods" name="blackout_periods" rows="5" placeholder="23:00-06:00&#10;12:30-13:00" aria-describedby="blackout-help">{{ request.form.get('blackout_periods', check.blackout_periods if check else '') }}</textarea>
       </label>
-      <small>One range per line. Format: HH:MM-HH:MM</small>
+      <small id="blackout-help">One range per line. Format: HH:MM-HH:MM</small>
 
       <div class="form-actions">
-        <button type="submit" formaction="{{ url_for('dashboard') }}" formmethod="get">Cancel</button>
+        <button type="submit" formaction="{{ url_for('dashboard') }}" formmethod="get" formnovalidate>Cancel</button>
         <button type="submit">Save</button>
       </div>
     </form>

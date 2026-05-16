@@ -97,8 +97,8 @@ def alert_settings_data():
                ar.name,
                ar.alert_failures,
                ar.alert_window_minutes,
-               COUNT(arc.check_id) AS monitor_count,
-               GROUP_CONCAT(c.name, ', ') AS monitor_names,
+               COUNT(DISTINCT arc.check_id) AS monitor_count,
+               GROUP_CONCAT(DISTINCT c.name) AS monitor_names,
                COUNT(DISTINCT arer.recipient_id) AS communication_count,
                GROUP_CONCAT(DISTINCT r.email) AS communication_names
         FROM alert_rules ar

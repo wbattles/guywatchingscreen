@@ -1,5 +1,6 @@
 from datetime import timedelta
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -102,7 +103,21 @@ def run_check(check_id):
                 set_alert_rule_state(db, alert_rule["id"], check_id, False)
 
         db.execute("UPDATE checks SET alert_active = ? WHERE id = ?", (int(any_active), check_id))
+        # Commit all DB writes before sending email so the SQLite write lock
+        # is released before the SMTP call (which can block up to 20 seconds).
         db.commit()
+
+        for alert_rule in alert_rules:
+            failures = failure_count_within_window(db, check_id, alert_rule["alert_window_minutes"])
+            if failures >= alert_rule["alert_failures"] and not alert_rule["alert_active"]:
+                message = (
+                    f"{check['name']} failed {failures} times in the last "
+                    f"{alert_rule['alert_window_minutes']} minutes for alert {alert_rule['name']}. "
+                    f"Last status: {status_code or 'error'}."
+                )
+                detail = error_message or f"HTTP {status_code}"
+                create_alert(db, check, "failure", message, alert_rule["id"], detail)
+                db.commit()
     finally:
         db.close()
 
@@ -125,8 +140,17 @@ def run_pending_checks():
         (iso(current_time),),
     ).fetchall()
     db.close()
-    for check in checks:
-        run_check(check["id"])
+
+    # Run checks in parallel so slow URLs don't block each other.
+    if checks:
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {pool.submit(run_check, check["id"]): check["id"] for check in checks}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    pass  # individual check errors are already handled inside run_check
+
     prune_db = open_db()
     prune_old_results(prune_db)
     prune_db.close()

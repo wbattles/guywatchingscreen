@@ -14,7 +14,15 @@ DATABASE = DATA_DIR / "monitor.db"
 EXPECTED_STATUS = 200
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
+_secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
+if _secret_key == "dev-secret-key" and not os.environ.get("FLASK_DEBUG"):
+    import warnings
+    warnings.warn(
+        "SECRET_KEY is not set. Using the default dev key is insecure in production. "
+        "Set the SECRET_KEY environment variable.",
+        stacklevel=1,
+    )
+app.config["SECRET_KEY"] = _secret_key
 
 
 def get_db():
@@ -157,7 +165,14 @@ def now_utc():
 
 
 def iso(dt):
-    return dt.isoformat()
+    """Return a naive local ISO timestamp string for DB storage.
+
+    Strips timezone info so timestamps stay in the same naive-local format
+    used by existing databases, keeping string comparisons consistent.
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone().replace(tzinfo=None)
+    return dt.replace(microsecond=0).isoformat()
 
 
 def parse_int_field(form, field_name, default, label):

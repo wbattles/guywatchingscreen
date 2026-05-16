@@ -24,7 +24,8 @@ jobs:
       - name: Compile Python files
         run: python -m py_compile app.py alerts.py communication.py common.py websites.py
 
-      - name: Verify app imports
-        run: python -c "import app"
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test*.py"
         env:
           DATA_DIR: /tmp
+          FLASK_DEBUG: "1"

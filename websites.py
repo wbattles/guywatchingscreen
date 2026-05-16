@@ -48,7 +48,14 @@ def run_check(check_id):
     db = open_db()
     try:
         check = db.execute("SELECT * FROM checks WHERE id = ?", (check_id,)).fetchone()
-        if check is None or is_in_blackout(check["blackout_periods"]):
+        if check is None:
+            return
+        if is_in_blackout(check["blackout_periods"]):
+            # Advance next_run_at so the scheduler doesn't re-select this check
+            # on every tick for the entire blackout window.
+            next_run_at = now_utc() + timedelta(minutes=check["frequency_minutes"])
+            db.execute("UPDATE checks SET next_run_at = ? WHERE id = ?", (iso(next_run_at), check_id))
+            db.commit()
             return
 
         started = time.perf_counter()

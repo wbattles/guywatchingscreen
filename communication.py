@@ -46,12 +46,12 @@ def get_env_email_settings():
     """Read email configuration from environment variables or Docker secrets.
 
     Expected environment variables:
-        SENDER_EMAIL   – From address
-        SMTP_HOST      – Hostname of SMTP server
-        SMTP_PORT      – Port (defaults to 587)
-        SMTP_USER      – Username (optional)
-        SMTP_USE_TLS   – "1" or "0" (defaults to 1)
-        SMTP_PASSWORD  – Password (read from env or secret file via get_smtp_password())
+        SENDER_EMAIL   - From address
+        SMTP_HOST      - Hostname of SMTP server
+        SMTP_PORT      - Port (defaults to 587)
+        SMTP_USER      - Username (optional)
+        SMTP_USE_TLS   - "1" or "0" (defaults to 1)
+        SMTP_PASSWORD  - Password (read from env or secret file via get_smtp_password())
     """
     return {
         "sender_email": os.getenv("SENDER_EMAIL", ""),
@@ -168,6 +168,7 @@ def edit_email_recipient(recipient_id):
 @app.post("/communication/emails/<int:recipient_id>/delete")
 def delete_email_recipient(recipient_id):
     db = get_db()
+    db.execute("DELETE FROM alert_rule_email_recipients WHERE recipient_id = ?", (recipient_id,))
     db.execute("DELETE FROM communication_email_recipients WHERE id = ?", (recipient_id,))
     db.commit()
     flash("Email deleted.", "success")

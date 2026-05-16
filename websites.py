@@ -13,11 +13,19 @@ from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, o
 SCHEDULER = BackgroundScheduler(daemon=True)
 
 
+def _safe_int(data, key, default, label):
+    raw = data.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number.")
+
+
 def validate_check_json(data):
     name = (data.get("name") or "").strip()
     url = (data.get("url") or "").strip()
-    frequency_minutes = int(data.get("frequency_minutes", 5))
-    timeout_seconds = int(data.get("timeout_seconds", 10))
+    frequency_minutes = _safe_int(data, "frequency_minutes", 5, "Frequency")
+    timeout_seconds = _safe_int(data, "timeout_seconds", 10, "Timeout")
     blackout_periods = (data.get("blackout_periods") or "").strip()
 
     if not name:

@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import timedelta
 
 from flask import jsonify, request
@@ -6,12 +7,30 @@ from common import app, get_db, iso, now_utc, parse_int_field
 from communication import fetch_email_recipients, send_email_alert
 
 
+def _safe_int(data, key, default, label):
+    raw = data.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number.")
+
+
+def _int_list(values):
+    result = []
+    for v in (values or []):
+        try:
+            result.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return sorted(set(result))
+
+
 def validate_alert_json(data):
     name = (data.get("name") or "").strip()
-    alert_failures = int(data.get("alert_failures", 3))
-    alert_window_minutes = int(data.get("alert_window_minutes", 15))
-    check_ids = sorted(set(data.get("check_ids") or []))
-    recipient_ids = sorted(set(data.get("recipient_ids") or []))
+    alert_failures = _safe_int(data, "alert_failures", 3, "Alert failures")
+    alert_window_minutes = _safe_int(data, "alert_window_minutes", 15, "Alert window")
+    check_ids = _int_list(data.get("check_ids"))
+    recipient_ids = _int_list(data.get("recipient_ids"))
 
     if not name:
         raise ValueError("Name is required.")
@@ -150,6 +169,9 @@ def alert_rule_recipient_ids(db, alert_rule_id):
 def api_alerts_screen():
     return jsonify({"alert_settings": [dict(r) for r in alert_settings_data()]})
 
+@app.route("/api/alerts")
+def api_alerts_screen():
+    return jsonify({"alert_settings": [dict(r) for r in alert_settings_data()]})
 
 @app.route("/api/alerts/<int:alert_id>")
 def api_alert_detail(alert_id):
@@ -201,6 +223,8 @@ def api_create_alert_rule():
         return jsonify({"ok": True}), 201
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Invalid monitor or recipient selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>")
@@ -253,6 +277,8 @@ def api_update_alert_rule(alert_rule_id):
         return jsonify({"ok": True})
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Invalid monitor or recipient selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>", methods=["DELETE"])

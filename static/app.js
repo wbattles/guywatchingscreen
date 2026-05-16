@@ -94,10 +94,14 @@ function esc(str) {
 // ========================
 
 async function loadDashboard() {
-  const data = await api('/api/dashboard');
-  EXPECTED_STATUS = data.expected_status;
-  renderChecks(data.checks);
-  renderRecentAlerts(data.alerts);
+  try {
+    const data = await api('/api/dashboard');
+    EXPECTED_STATUS = data.expected_status;
+    renderChecks(data.checks);
+    renderRecentAlerts(data.alerts);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 function checkStatus(c) {
@@ -162,25 +166,38 @@ function renderRecentAlerts(alerts) {
 }
 
 async function runCheck(id) {
-  await api(`/api/checks/${id}/run`, { method: 'POST' });
-  loadDashboard();
+  try {
+    await api(`/api/checks/${id}/run`, { method: 'POST' });
+    loadDashboard();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function clearAlerts() {
   if (!await showConfirm('Clear all recent alerts?')) return;
-  await api('/api/alerts/clear', { method: 'POST' });
-  flash('Alerts cleared.');
-  loadDashboard();
+  try {
+    await api('/api/alerts/clear', { method: 'POST' });
+    flash('Alerts cleared.');
+    loadDashboard();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function deleteAlert(id) {
   if (!await showConfirm('Delete this alert?')) return;
-  await api(`/api/alerts/${id}`, { method: 'DELETE' });
-  flash('Alert deleted.');
-  loadDashboard();
+  try {
+    await api(`/api/alerts/${id}`, { method: 'DELETE' });
+    flash('Alert deleted.');
+    loadDashboard();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function showAlertDetail(id) {
+  try {
   const a = await api(`/api/alerts/${id}`);
   openModal(`<section class="panel form-panel">
     <h2>Alert</h2>
@@ -194,11 +211,15 @@ async function showAlertDetail(id) {
     </label>
     <div class="form-actions"><button onclick="closeModal()">Back</button></div>
   </section>`);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 // --- check form ---
 
 async function showCheckForm(id) {
+  try {
   let check = null;
   if (id) check = await api(`/api/checks/${id}`);
   const c = check || {};
@@ -233,6 +254,9 @@ async function showCheckForm(id) {
       <button onclick="deleteCheck(${id})">Delete website</button>
     </div>` : ''}
   </section>`);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function saveCheck(e, id) {
@@ -262,10 +286,14 @@ async function saveCheck(e, id) {
 
 async function deleteCheck(id) {
   if (!await showConfirm('Delete this website?')) return;
-  await api(`/api/checks/${id}`, { method: 'DELETE' });
-  flash('Website deleted.');
-  closeModal();
-  loadDashboard();
+  try {
+    await api(`/api/checks/${id}`, { method: 'DELETE' });
+    flash('Website deleted.');
+    closeModal();
+    loadDashboard();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 
@@ -274,8 +302,12 @@ async function deleteCheck(id) {
 // ========================
 
 async function loadAlertSettings() {
-  const data = await api('/api/alerts');
-  renderAlertSettings(data.alert_settings);
+  try {
+    const data = await api('/api/alerts');
+    renderAlertSettings(data.alert_settings);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 function renderAlertSettings(settings) {
@@ -310,6 +342,7 @@ function renderAlertSettings(settings) {
 }
 
 async function showAlertRuleForm(id) {
+  try {
   // need checks + recipients for the checkboxes
   const [dashData, commsData] = await Promise.all([
     api('/api/dashboard'),
@@ -339,8 +372,8 @@ async function showAlertRuleForm(id) {
   ).join('');
 
   const recipientBoxes = recipients.length
-    ? recipients.map(r =>
-        `<label class="checkbox-row"><input type="checkbox" name="recipient_ids" value="${r.id}" ${selectedRecipientIds.includes(r.id) ? 'checked' : ''}><span>${esc(r.email)}</span></label>`
+    ? recipients.map(rec =>
+        `<label class="checkbox-row"><input type="checkbox" name="recipient_ids" value="${rec.id}" ${selectedRecipientIds.includes(rec.id) ? 'checked' : ''}><span>${esc(rec.email)}</span></label>`
       ).join('')
     : '<p>No email recipients yet. Add one on the comms tab first.</p>';
 
@@ -366,6 +399,9 @@ async function showAlertRuleForm(id) {
       </div>
     </form>
   </section>`);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function saveAlertRule(e, id) {
@@ -397,9 +433,13 @@ async function saveAlertRule(e, id) {
 
 async function deleteAlertRule(id) {
   if (!await showConfirm('Delete this alert rule?')) return;
-  await api(`/api/alert-rules/${id}`, { method: 'DELETE' });
-  flash('Alert deleted.');
-  loadAlertSettings();
+  try {
+    await api(`/api/alert-rules/${id}`, { method: 'DELETE' });
+    flash('Alert deleted.');
+    loadAlertSettings();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 
@@ -408,9 +448,13 @@ async function deleteAlertRule(id) {
 // ========================
 
 async function loadCommunication() {
-  const data = await api('/api/communication');
-  renderEmailSetup(data.email_settings);
-  renderEmailRecipients(data.email_recipients);
+  try {
+    const data = await api('/api/communication');
+    renderEmailSetup(data.email_settings);
+    renderEmailRecipients(data.email_recipients);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 function renderEmailSetup(settings) {
@@ -430,21 +474,17 @@ function renderEmailRecipients(recipients) {
   const area = document.getElementById('email-recipients-area');
   if (!recipients.length) { area.innerHTML = '<p>No email recipients yet.</p>'; return; }
 
-  const rows = recipients.map(r => `<tr>
-    <td>${esc(r.email)}</td>
-    <td><div class="actions actions-right">
+  area.innerHTML = '<ul class="recipient-list">' + recipients.map(r => `<li>
+    <span>${esc(r.email)}</span>
+    <div class="actions">
       <button onclick="showEmailForm(${r.id})">Edit</button>
       <button onclick="deleteEmail(${r.id})">Delete</button>
-    </div></td>
-  </tr>`).join('');
-
-  area.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Email</th><th></th></tr></thead>
-    <tbody>${rows}</tbody>
-  </table></div>`;
+    </div>
+  </li>`).join('') + '</ul>';
 }
 
 async function showEmailForm(id) {
+  try {
   let recipient = null;
   if (id) {
     const data = await api('/api/communication');
@@ -463,6 +503,9 @@ async function showEmailForm(id) {
       </div>
     </form>
   </section>`);
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 async function saveEmail(e, id) {
@@ -485,9 +528,13 @@ async function saveEmail(e, id) {
 
 async function deleteEmail(id) {
   if (!await showConfirm('Delete this email?')) return;
-  await api(`/api/communication/emails/${id}`, { method: 'DELETE' });
-  flash('Email deleted.');
-  loadCommunication();
+  try {
+    await api(`/api/communication/emails/${id}`, { method: 'DELETE' });
+    flash('Email deleted.');
+    loadCommunication();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
 }
 
 

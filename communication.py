@@ -33,6 +33,13 @@ def get_smtp_password():
     return os.getenv("SMTP_PASSWORD", "")
 
 
+def get_env_int(name, default):
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def get_env_email_settings():
     """Read email configuration from environment variables or Docker secrets.
 
@@ -47,9 +54,9 @@ def get_env_email_settings():
     return {
         "sender_email": os.getenv("SENDER_EMAIL", ""),
         "smtp_host": os.getenv("SMTP_HOST", ""),
-        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_port": get_env_int("SMTP_PORT", 587),
         "smtp_user": os.getenv("SMTP_USER", ""),
-        "use_tls": int(os.getenv("SMTP_USE_TLS", "1")),
+        "use_tls": get_env_int("SMTP_USE_TLS", 1),
     }
 
 def fetch_email_recipients(db):

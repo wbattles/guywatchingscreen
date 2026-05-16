@@ -49,6 +49,7 @@ Open `http://127.0.0.1:5000`
   - `SMTP_USE_TLS` – `1` to enable TLS (default) or `0` to disable
   - `SMTP_PASSWORD` – password for the SMTP server (can be provided via a Docker secret named `smtp_password`)
 - Recipients are still managed through the UI on the **Communication** page.
+- If `SMTP_PORT` or `SMTP_USE_TLS` are missing or invalid, the app falls back to safe defaults.
 
 Example `.env`:
 
@@ -85,6 +86,18 @@ Build and run with Docker Compose:
 # Build the image and start the container
 docker compose up --build
 ```
+
+This compose file uses environment variables by default, including `SMTP_PASSWORD`.
+If you want to use a Docker secret instead, mount a secret file to `/run/secrets/smtp_password`.
+
+Example secret file:
+
+```bash
+mkdir -p secrets
+printf '%s' 'your-real-password' > secrets/smtp_password.txt
+```
+
+Then uncomment the `secrets` lines in `docker-compose.yml`.
 
 ## Open source
 

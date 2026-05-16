@@ -13,12 +13,14 @@ services:
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_USE_TLS=${SMTP_USE_TLS}
-    secrets:
-      - smtp_password
-    # Optional: persist the SQLite DB outside the container
-    # volumes:
-    #   - ./monitor.db:/app/monitor.db
+      # Default: pass SMTP_PASSWORD as an environment variable.
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    volumes:
+      - ./monitor.db:/app/monitor.db
+    # Optional: Docker secret
+    # secrets:
+    #   - smtp_password
 
-secrets:
-  smtp_password:
-    file: ./secrets/smtp_password.txt
+# secrets:
+#   smtp_password:
+#     file: ./secrets/smtp_password.txt

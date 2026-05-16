@@ -84,8 +84,7 @@ Use one time range per line:
 Build and run with Docker Compose:
 
 ```bash
-# Build the image and start the container
-docker compose up --build
+docker compose up -d
 ```
 
 Docker Compose serves the app on `http://127.0.0.1:5001`.

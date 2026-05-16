@@ -16,7 +16,7 @@ services:
        # Default: pass SMTP_PASSWORD as an environment variable.
       - SMTP_PASSWORD=${SMTP_PASSWORD}
     volumes:
-      - ./data:/app/data
+      - monitor_data:/app/data
     # Optional: Docker secret
     # secrets:
     #   - smtp_password
@@ -24,3 +24,6 @@ services:
 # secrets:
 #   smtp_password:
 #     file: ./secrets/smtp_password.txt
+
+volumes:
+  monitor_data:

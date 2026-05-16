@@ -4,16 +4,16 @@
    =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= */
 
 :root {
-  --bg: #0d0d12;
-  --bg-panel: #1c1c2b;
-  --fg: #ededf5;
-  --dim: #8888a8;
-  --magenta: #ff3df5;
-  --cyan: #3df5ff;
-  --green: #3dff7a;
-  --red: #ff5d5d;
-  --yellow: #ffd93d;
-  --line: #363650;
+  --bg: #0a0e14;
+  --bg-panel: #141c26;
+  --fg: #d4dce8;
+  --dim: #6e8098;
+  --magenta: #4d9eff;
+  --cyan: #95c8ff;
+  --green: #55d88a;
+  --red: #ff6b6b;
+  --yellow: #ffc857;
+  --line: #253040;
 }
 
 * {
@@ -70,7 +70,7 @@ a:hover {
   line-height: 1.3;
   white-space: pre;
   overflow: hidden;
-  text-shadow: 0 0 8px rgba(255, 61, 245, 0.5);
+  text-shadow: 0 0 8px rgba(77, 158, 255, 0.5);
 }
 
 .nav {
@@ -246,7 +246,7 @@ thead th {
 .pill-up {
   border-color: var(--green);
   color: var(--green);
-  background: rgba(61, 255, 122, 0.06);
+  background: rgba(85, 216, 138, 0.08);
 }
 
 .pill-down {

@@ -9,6 +9,7 @@ from flask import Flask, g
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATABASE = DATA_DIR / "monitor.db"
 EXPECTED_STATUS = 200
 

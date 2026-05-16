@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
-from flask import flash, redirect, render_template, request, url_for
+from flask import jsonify, request
 
 from alerts import alert_rules_for_check, create_alert, failure_count_within_window, set_alert_rule_state
 from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, open_db, parse_blackout_periods, parse_int_field
@@ -13,12 +13,12 @@ from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, o
 SCHEDULER = BackgroundScheduler(daemon=True)
 
 
-def validate_check_form(form):
-    name = form.get("name", "").strip()
-    url = form.get("url", "").strip()
-    frequency_minutes = parse_int_field(form, "frequency_minutes", 5, "Frequency")
-    timeout_seconds = parse_int_field(form, "timeout_seconds", 10, "Timeout")
-    blackout_periods = form.get("blackout_periods", "").strip()
+def validate_check_json(data):
+    name = (data.get("name") or "").strip()
+    url = (data.get("url") or "").strip()
+    frequency_minutes = int(data.get("frequency_minutes", 5))
+    timeout_seconds = int(data.get("timeout_seconds", 10))
+    blackout_periods = (data.get("blackout_periods") or "").strip()
 
     if not name:
         raise ValueError("Name is required.")
@@ -51,8 +51,6 @@ def run_check(check_id):
         if check is None:
             return
         if is_in_blackout(check["blackout_periods"]):
-            # Advance next_run_at so the scheduler doesn't re-select this check
-            # on every tick for the entire blackout window.
             next_run_at = now_utc() + timedelta(minutes=check["frequency_minutes"])
             db.execute("UPDATE checks SET next_run_at = ? WHERE id = ?", (iso(next_run_at), check_id))
             db.commit()
@@ -115,8 +113,6 @@ def run_check(check_id):
                 set_alert_rule_state(db, alert_rule["id"], check_id, False)
 
         db.execute("UPDATE checks SET alert_active = ? WHERE id = ?", (int(any_active), check_id))
-        # Commit all DB writes before sending email so the SQLite write lock
-        # is released before any SMTP call (which can block up to 20 seconds).
         db.commit()
 
         for pending in pending_alerts:
@@ -221,83 +217,86 @@ def dashboard_data():
     return checks, alerts
 
 
-@app.route("/")
-def dashboard():
+def row_to_dict(row):
+    return dict(row) if row else None
+
+
+@app.route("/api/dashboard")
+def api_dashboard():
     checks, alerts = dashboard_data()
-    return render_template("dashboard.html", checks=checks, alerts=alerts, expected_status=EXPECTED_STATUS)
+    return jsonify({
+        "checks": [dict(r) for r in checks],
+        "alerts": [dict(r) for r in alerts],
+        "expected_status": EXPECTED_STATUS,
+    })
 
 
-@app.route("/checks/new", methods=["GET", "POST"])
-def create_check():
-    if request.method == "POST":
-        try:
-            data = validate_check_form(request.form)
-            timestamp = iso(now_utc())
-            db = get_db()
-            db.execute(
-                """
-                INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (data["name"], data["url"], data["frequency_minutes"], data["timeout_seconds"], data["blackout_periods"], timestamp, timestamp),
-            )
-            db.commit()
-            flash("Check created.", "success")
-            return redirect(url_for("dashboard"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-    return render_template("check_form.html", check=None)
+@app.route("/api/checks", methods=["POST"])
+def api_create_check():
+    try:
+        data = validate_check_json(request.get_json(force=True))
+        timestamp = iso(now_utc())
+        db = get_db()
+        db.execute(
+            """
+            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (data["name"], data["url"], data["frequency_minutes"], data["timeout_seconds"], data["blackout_periods"], timestamp, timestamp),
+        )
+        db.commit()
+        return jsonify({"ok": True}), 201
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
-@app.route("/checks/<int:check_id>/edit", methods=["GET", "POST"])
-def edit_check(check_id):
+@app.route("/api/checks/<int:check_id>")
+def api_get_check(check_id):
     check = fetch_check(check_id)
     if check is None:
-        flash("Check not found.", "error")
-        return redirect(url_for("dashboard"))
-    if request.method == "POST":
-        try:
-            data = validate_check_form(request.form)
-            db = get_db()
-            db.execute(
-                """
-                UPDATE checks
-                SET name = ?, url = ?, frequency_minutes = ?, timeout_seconds = ?, blackout_periods = ?
-                WHERE id = ?
-                """,
-                (data["name"], data["url"], data["frequency_minutes"], data["timeout_seconds"], data["blackout_periods"], check_id),
-            )
-            db.commit()
-            flash("Check updated.", "success")
-            return redirect(url_for("dashboard"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-            check = dict(check)
-            check.update(request.form)
-    return render_template("check_form.html", check=check)
+        return jsonify({"error": "Check not found."}), 404
+    return jsonify(dict(check))
 
 
-@app.post("/checks/<int:check_id>/run")
-def trigger_check(check_id):
+@app.route("/api/checks/<int:check_id>", methods=["PUT"])
+def api_update_check(check_id):
     if fetch_check(check_id) is None:
-        flash("Check not found.", "error")
-        return redirect(url_for("dashboard"))
-    run_check(check_id)
-    return redirect(url_for("dashboard"))
+        return jsonify({"error": "Check not found."}), 404
+    try:
+        data = validate_check_json(request.get_json(force=True))
+        db = get_db()
+        db.execute(
+            """
+            UPDATE checks
+            SET name = ?, url = ?, frequency_minutes = ?, timeout_seconds = ?, blackout_periods = ?
+            WHERE id = ?
+            """,
+            (data["name"], data["url"], data["frequency_minutes"], data["timeout_seconds"], data["blackout_periods"], check_id),
+        )
+        db.commit()
+        return jsonify({"ok": True})
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
-@app.post("/checks/<int:check_id>/delete")
-def delete_check(check_id):
+@app.route("/api/checks/<int:check_id>", methods=["DELETE"])
+def api_delete_check(check_id):
     db = get_db()
     check = db.execute("SELECT id FROM checks WHERE id = ?", (check_id,)).fetchone()
     if check is None:
-        flash("Check not found.", "error")
-        return redirect(url_for("dashboard"))
+        return jsonify({"error": "Check not found."}), 404
     db.execute("DELETE FROM alert_rule_states WHERE check_id = ?", (check_id,))
     db.execute("DELETE FROM alert_rule_checks WHERE check_id = ?", (check_id,))
     db.execute("DELETE FROM alerts WHERE check_id = ?", (check_id,))
     db.execute("DELETE FROM check_results WHERE check_id = ?", (check_id,))
     db.execute("DELETE FROM checks WHERE id = ?", (check_id,))
     db.commit()
-    flash("Website deleted.", "success")
-    return redirect(url_for("dashboard"))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/checks/<int:check_id>/run", methods=["POST"])
+def api_trigger_check(check_id):
+    if fetch_check(check_id) is None:
+        return jsonify({"error": "Check not found."}), 404
+    run_check(check_id)
+    return jsonify({"ok": True})

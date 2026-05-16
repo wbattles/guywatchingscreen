@@ -1,17 +1,17 @@
 from datetime import timedelta
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import jsonify, request
 
 from common import app, get_db, iso, now_utc, parse_int_field
 from communication import fetch_email_recipients, send_email_alert
 
 
-def validate_alert_form(form):
-    name = form.get("name", "").strip()
-    alert_failures = parse_int_field(form, "alert_failures", 3, "Alert failures")
-    alert_window_minutes = parse_int_field(form, "alert_window_minutes", 15, "Alert window")
-    check_ids = sorted({int(value) for value in form.getlist("check_ids") if value.isdigit()})
-    recipient_ids = sorted({int(value) for value in form.getlist("recipient_ids") if value.isdigit()})
+def validate_alert_json(data):
+    name = (data.get("name") or "").strip()
+    alert_failures = int(data.get("alert_failures", 3))
+    alert_window_minutes = int(data.get("alert_window_minutes", 15))
+    check_ids = sorted(set(data.get("check_ids") or []))
+    recipient_ids = sorted(set(data.get("recipient_ids") or []))
 
     if not name:
         raise ValueError("Name is required.")
@@ -144,159 +144,127 @@ def alert_rule_recipient_ids(db, alert_rule_id):
     return [row["recipient_id"] for row in rows]
 
 
-@app.route("/alerts")
-def alerts_screen():
-    return render_template("alerts.html", alert_settings=alert_settings_data())
+# --- API routes ---
+
+@app.route("/api/alerts")
+def api_alerts_screen():
+    return jsonify({"alert_settings": [dict(r) for r in alert_settings_data()]})
 
 
-@app.route("/alerts/<int:alert_id>")
-def alert_detail(alert_id):
+@app.route("/api/alerts/<int:alert_id>")
+def api_alert_detail(alert_id):
     alert = fetch_alert(alert_id)
     if alert is None:
-        flash("Alert not found.", "error")
-        return redirect(url_for("dashboard"))
-    return render_template("alert_detail.html", alert=alert)
+        return jsonify({"error": "Alert not found."}), 404
+    return jsonify(dict(alert))
 
 
-@app.post("/alerts/clear")
-def clear_alerts():
+@app.post("/api/alerts/clear")
+def api_clear_alerts():
     db = get_db()
     db.execute("DELETE FROM alerts")
     db.execute("UPDATE alert_rule_states SET alert_active = 0")
     db.execute("UPDATE checks SET alert_active = 0")
     db.commit()
-    flash("Alerts cleared.", "success")
-    return redirect(url_for("dashboard"))
+    return jsonify({"ok": True})
 
 
-@app.post("/alerts/<int:alert_id>/delete")
-def delete_alert(alert_id):
+@app.route("/api/alerts/<int:alert_id>", methods=["DELETE"])
+def api_delete_alert(alert_id):
     db = get_db()
     db.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
     db.commit()
-    flash("Alert deleted.", "success")
-    return redirect(url_for("dashboard"))
+    return jsonify({"ok": True})
 
 
-@app.route("/alerts/new", methods=["GET", "POST"])
-def create_alert_rule():
-    db = get_db()
-    checks = db.execute("SELECT id, name FROM checks ORDER BY name COLLATE NOCASE ASC").fetchall()
-    recipients = fetch_email_recipients(db)
-    selected_check_ids = []
-    selected_recipient_ids = []
-    if request.method == "POST":
-        selected_check_ids = [int(value) for value in request.form.getlist("check_ids") if value.isdigit()]
-        selected_recipient_ids = [int(value) for value in request.form.getlist("recipient_ids") if value.isdigit()]
-        try:
-            data = validate_alert_form(request.form)
+@app.route("/api/alert-rules", methods=["POST"])
+def api_create_alert_rule():
+    try:
+        data = validate_alert_json(request.get_json(force=True))
+        db = get_db()
+        db.execute(
+            """
+            INSERT INTO alert_rules (name, alert_failures, alert_window_minutes, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (data["name"], data["alert_failures"], data["alert_window_minutes"], iso(now_utc())),
+        )
+        alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        for check_id in data["check_ids"]:
+            db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+        for recipient_id in data["recipient_ids"]:
             db.execute(
-                """
-                INSERT INTO alert_rules (name, alert_failures, alert_window_minutes, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (data["name"], data["alert_failures"], data["alert_window_minutes"], iso(now_utc())),
+                "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
+                (alert_rule_id, recipient_id),
             )
-            alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-            for check_id in data["check_ids"]:
-                db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
-            for recipient_id in data["recipient_ids"]:
-                db.execute(
-                    "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
-                    (alert_rule_id, recipient_id),
-                )
-            db.commit()
-            flash("Alert created.", "success")
-            return redirect(url_for("alerts_screen"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-    return render_template(
-        "alert_form.html",
-        checks=checks,
-        recipients=recipients,
-        alert_rule=None,
-        selected_check_ids=selected_check_ids,
-        selected_recipient_ids=selected_recipient_ids,
-    )
+        db.commit()
+        return jsonify({"ok": True}), 201
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
-@app.route("/alerts/<int:alert_rule_id>/edit", methods=["GET", "POST"])
-def edit_alert_rule(alert_rule_id):
+@app.route("/api/alert-rules/<int:alert_rule_id>")
+def api_get_alert_rule(alert_rule_id):
     db = get_db()
-    checks = db.execute("SELECT id, name FROM checks ORDER BY name COLLATE NOCASE ASC").fetchall()
-    recipients = fetch_email_recipients(db)
-    alert_rule = fetch_alert_rule(alert_rule_id)
-    if alert_rule is None:
-        flash("Alert not found.", "error")
-        return redirect(url_for("alerts_screen"))
+    rule = fetch_alert_rule(alert_rule_id)
+    if rule is None:
+        return jsonify({"error": "Alert rule not found."}), 404
+    return jsonify({
+        **dict(rule),
+        "check_ids": alert_rule_check_ids(db, alert_rule_id),
+        "recipient_ids": alert_rule_recipient_ids(db, alert_rule_id),
+    })
 
-    if request.method == "POST":
-        selected_check_ids = [int(value) for value in request.form.getlist("check_ids") if value.isdigit()]
-        selected_recipient_ids = [int(value) for value in request.form.getlist("recipient_ids") if value.isdigit()]
-        try:
-            data = validate_alert_form(request.form)
+
+@app.route("/api/alert-rules/<int:alert_rule_id>", methods=["PUT"])
+def api_update_alert_rule(alert_rule_id):
+    db = get_db()
+    if fetch_alert_rule(alert_rule_id) is None:
+        return jsonify({"error": "Alert rule not found."}), 404
+    try:
+        data = validate_alert_json(request.get_json(force=True))
+        db.execute(
+            """
+            UPDATE alert_rules
+            SET name = ?, alert_failures = ?, alert_window_minutes = ?
+            WHERE id = ?
+            """,
+            (data["name"], data["alert_failures"], data["alert_window_minutes"], alert_rule_id),
+        )
+        db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
+        for check_id in data["check_ids"]:
+            db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+        db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
+        for recipient_id in data["recipient_ids"]:
             db.execute(
-                """
-                UPDATE alert_rules
-                SET name = ?, alert_failures = ?, alert_window_minutes = ?
-                WHERE id = ?
-                """,
-                (data["name"], data["alert_failures"], data["alert_window_minutes"], alert_rule_id),
+                "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
+                (alert_rule_id, recipient_id),
             )
-            db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
-            for check_id in data["check_ids"]:
-                db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
-            db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
-            for recipient_id in data["recipient_ids"]:
-                db.execute(
-                    "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
-                    (alert_rule_id, recipient_id),
-                )
-            if data["check_ids"]:
-                db.execute(
-                    "DELETE FROM alert_rule_states WHERE alert_rule_id = ? AND check_id NOT IN ({})".format(
-                        ",".join("?" * len(data["check_ids"]))
-                    ),
-                    [alert_rule_id, *data["check_ids"]],
-                )
-            else:
-                db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
-            db.commit()
-            flash("Alert updated.", "success")
-            return redirect(url_for("alerts_screen"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-            return render_template(
-                "alert_form.html",
-                checks=checks,
-                recipients=recipients,
-                alert_rule=alert_rule,
-                selected_check_ids=selected_check_ids,
-                selected_recipient_ids=selected_recipient_ids,
+        if data["check_ids"]:
+            db.execute(
+                "DELETE FROM alert_rule_states WHERE alert_rule_id = ? AND check_id NOT IN ({})".format(
+                    ",".join("?" * len(data["check_ids"]))
+                ),
+                [alert_rule_id, *data["check_ids"]],
             )
-
-    return render_template(
-        "alert_form.html",
-        checks=checks,
-        recipients=recipients,
-        alert_rule=alert_rule,
-        selected_check_ids=alert_rule_check_ids(db, alert_rule_id),
-        selected_recipient_ids=alert_rule_recipient_ids(db, alert_rule_id),
-    )
+        else:
+            db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
+        db.commit()
+        return jsonify({"ok": True})
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
 
-@app.post("/alert-rules/<int:alert_rule_id>/delete")
-def delete_alert_rule(alert_rule_id):
+@app.route("/api/alert-rules/<int:alert_rule_id>", methods=["DELETE"])
+def api_delete_alert_rule(alert_rule_id):
     db = get_db()
-    alert_rule = db.execute("SELECT id FROM alert_rules WHERE id = ?", (alert_rule_id,)).fetchone()
-    if alert_rule is None:
-        flash("Alert not found.", "error")
-        return redirect(url_for("alerts_screen"))
+    rule = db.execute("SELECT id FROM alert_rules WHERE id = ?", (alert_rule_id,)).fetchone()
+    if rule is None:
+        return jsonify({"error": "Alert rule not found."}), 404
     db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alerts WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rules WHERE id = ?", (alert_rule_id,))
     db.commit()
-    flash("Alert deleted.", "success")
-    return redirect(url_for("alerts_screen"))
+    return jsonify({"ok": True})

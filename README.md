@@ -1,10 +1,16 @@
+```
+  ___
+ {o_o}
+ [___]
+```
+
 # guywatchingscreen
 
-Simple HTTP and HTTPS monitoring.
+[![Casino funds](https://img.shields.io/badge/Casino_funds-Ko--fi-ff5f5f?logo=ko-fi&logoColor=white)](https://ko-fi.com/wbattles)
 
-License: MIT
+Like a guy watching some screens.
 
-## Run it
+## Run locally
 
 ```bash
 python3 -m venv .venv
@@ -14,15 +20,18 @@ cp .env.example .env
 python app.py
 ```
 
-Open `http://127.0.0.1:5000`
+Open http://127.0.0.1:5000
 
 ## Run with Docker
 
 ```bash
+cp .env.example .env
 docker compose up -d
 ```
 
-Open `http://127.0.0.1:5001`
+Open http://127.0.0.1:5001
+
+Data persists in `./data/`.
 
 ## Email
 
@@ -38,7 +47,7 @@ SMTP_USE_TLS=1
 SMTP_PASSWORD=change-me
 ```
 
-Then add recipients on the **Communication** page.
+Then add recipients on the comms tab.
 
 ## Alerts
 
@@ -54,3 +63,7 @@ One time range per line:
 23:00-06:00
 12:30-13:00
 ```
+
+## License
+
+MIT

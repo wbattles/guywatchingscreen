@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>gws</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230a0e14'/><rect x='3' y='3' width='2' height='10' fill='%234d9eff'/><rect x='3' y='3' width='10' height='2' fill='%234d9eff'/><rect x='3' y='11' width='10' height='2' fill='%234d9eff'/><rect x='11' y='7' width='2' height='6' fill='%234d9eff'/><rect x='8' y='7' width='5' height='2' fill='%234d9eff'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Major+Mono+Display&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-header">
+        <div class="brand">
+<pre class="ascii-logo" aria-hidden="true">  ___
+ {o_o}  guy watching screen
+ [___]</pre>
+          <nav class="nav">
+            <a href="#monitors" data-tab="monitors" class="nav-link active">[ monitors ]</a>
+            <a href="#alerts" data-tab="alerts" class="nav-link">[ alerts ]</a>
+            <a href="#comms" data-tab="comms" class="nav-link">[ comms ]</a>
+          </nav>
+        </div>
+      </header>
+
+      <div class="ascii-divider" aria-hidden="true"></div>
+
+      <div id="flash-area"></div>
+
+      <!-- monitors tab -->
+      <section id="tab-monitors" class="tab">
+        <section class="panel">
+          <div class="section-header">
+            <h2>Checks</h2>
+            <button onclick="showCheckForm()">Add website</button>
+          </div>
+          <div id="checks-area"><p>Loading...</p></div>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <h2>Recent alerts</h2>
+            <button id="clear-alerts-btn" onclick="clearAlerts()" style="display:none">Clear all</button>
+          </div>
+          <div id="recent-alerts-area"><p>Loading...</p></div>
+        </section>
+      </section>
+
+      <!-- alerts tab -->
+      <section id="tab-alerts" class="tab" hidden>
+        <section class="panel">
+          <div class="section-header">
+            <h2>Alert settings</h2>
+            <button onclick="showAlertRuleForm()">Add alert</button>
+          </div>
+          <div id="alert-settings-area"><p>Loading...</p></div>
+        </section>
+      </section>
+
+      <!-- comms tab -->
+      <section id="tab-comms" class="tab" hidden>
+        <div class="communication-grid">
+          <section class="panel communication-left">
+            <h2>Email setup</h2>
+            <div id="email-setup-area"><p>Loading...</p></div>
+          </section>
+          <section class="panel communication-right">
+            <div class="section-header">
+              <h2>Email recipients</h2>
+              <button onclick="showEmailForm()">Add email</button>
+            </div>
+            <div id="email-recipients-area"><p>Loading...</p></div>
+          </section>
+        </div>
+      </section>
+
+      <!-- modal overlay for forms -->
+      <div id="modal-overlay" class="modal-overlay" hidden>
+        <div class="modal">
+          <div id="modal-content"></div>
+        </div>
+      </div>
+
+      <footer class="page-footer">
+        <div class="ascii-divider" aria-hidden="true"></div>
+        <p>// open source</p>
+      </footer>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

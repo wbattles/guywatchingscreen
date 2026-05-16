@@ -87,6 +87,8 @@ Build and run with Docker Compose:
 docker compose up --build
 ```
 
+Docker Compose serves the app on `http://127.0.0.1:5001`.
+
 This compose file uses environment variables by default, including `SMTP_PASSWORD`.
 If you want to use a Docker secret instead, mount a secret file to `/run/secrets/smtp_password`.
 

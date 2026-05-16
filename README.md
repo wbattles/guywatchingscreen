@@ -2,6 +2,8 @@
 
 Simple HTTP and HTTPS monitoring.
 
+License: MIT
+
 ## What it does
 
 - checks websites on a schedule
@@ -84,4 +86,10 @@ Build and run with Docker Compose:
 docker compose up --build
 ```
 
-You can provide the required environment variables via a `.env` file or directly in the `docker-compose.yml`. The SMTP password can be supplied as a Docker secret (`secrets/smtp_password.txt`).
+## Open source
+
+- License: `LICENSE`
+- Funding: `.github/FUNDING.yml`
+- Code owners: `.github/CODEOWNERS`
+- Workflows: `.github/workflows/`
+- Branch rules: `.github/BRANCH_RULES.md`

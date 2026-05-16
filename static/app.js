@@ -163,7 +163,6 @@ function renderRecentAlerts(alerts) {
 
 async function runCheck(id) {
   await api(`/api/checks/${id}/run`, { method: 'POST' });
-  flash('Check triggered.');
   loadDashboard();
 }
 

@@ -9,7 +9,7 @@
   --fg: #d4dce8;
   --dim: #6e8098;
   --magenta: #4d9eff;
-  --cyan: #95c8ff;
+  --cyan: #5dffc2;
   --green: #55d88a;
   --red: #ff6b6b;
   --yellow: #ffc857;
@@ -331,15 +331,20 @@ th {
 
 /* -- flashes -- */
 
-.flash-list {
+#flash-area {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 200;
   display: grid;
   gap: 8px;
-  margin-bottom: 18px;
+  max-width: 400px;
 }
 
 .flash {
   padding: 10px 12px;
-  border: 1px dashed var(--line);
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
   font-size: 13px;
 }
 

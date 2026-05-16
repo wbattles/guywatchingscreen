@@ -70,7 +70,7 @@ def run_check(check_id):
             response = None
             error_message = str(exc)
 
-        status_code = response.status_code if response else None
+        status_code = response.status_code if response is not None else None
         checked_at = now_utc()
         next_run_at = checked_at + timedelta(minutes=check["frequency_minutes"])
 

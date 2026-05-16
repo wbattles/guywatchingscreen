@@ -3,10 +3,7 @@
 {% block content %}
   <div class="communication-grid">
     <section class="panel form-panel communication-left">
-      <div class="section-header">
-        <h2>Email setup</h2>
-
-      </div>
+      <h2>Email setup</h2>
 
       {% if email_settings.sender_email or email_settings.smtp_host %}
         <p><strong>From:</strong> {{ email_settings.sender_email or 'Not set' }}</p>

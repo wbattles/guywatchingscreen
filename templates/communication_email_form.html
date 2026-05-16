@@ -1,0 +1,19 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <h2>{% if recipient %}Edit email{% else %}Add email{% endif %}</h2>
+
+    <form method="post" class="check-form">
+      <label>
+        <span>Email</span>
+        <input type="email" name="email" value="{{ request.form.get('email', recipient.email if recipient else '') }}" required>
+      </label>
+
+      <div class="form-actions">
+        <button type="submit" formaction="{{ url_for('communication_screen') }}" formmethod="get" formnovalidate>Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

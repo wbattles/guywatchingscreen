@@ -6,9 +6,9 @@
 
     {% if checks %}
       <form method="post" class="check-form">
-        <label>
+        <label for="alert-name">
           <span>Name</span>
-          <input type="text" name="name" maxlength="40" value="{{ request.form.get('name', alert_rule.name if alert_rule else '') }}" required>
+          <input id="alert-name" type="text" name="name" maxlength="40" value="{{ request.form.get('name', alert_rule.name if alert_rule else '') }}" required>
         </label>
 
         <fieldset>
@@ -23,20 +23,36 @@
           </div>
         </fieldset>
 
+        <fieldset>
+          <legend>Communication</legend>
+          {% if recipients %}
+            <div class="checkbox-list">
+              {% for recipient in recipients %}
+                <label class="checkbox-row">
+                  <input type="checkbox" name="recipient_ids" value="{{ recipient.id }}" {% if recipient.id in selected_recipient_ids %}checked{% endif %}>
+                  <span>{{ recipient.email }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p>No email recipients yet. Add one on the <a href="{{ url_for('communication_screen') }}">Communication</a> page first.</p>
+          {% endif %}
+        </fieldset>
+
         <div class="grid two-col">
-          <label>
+          <label for="alert-failures">
             <span>Alert after X failures</span>
-            <input type="number" min="1" name="alert_failures" value="{{ request.form.get('alert_failures', alert_rule.alert_failures if alert_rule else 3) }}" required>
+            <input id="alert-failures" type="number" min="1" name="alert_failures" value="{{ request.form.get('alert_failures', alert_rule.alert_failures if alert_rule else 3) }}" required>
           </label>
 
-          <label>
+          <label for="alert-window-minutes">
             <span>Within Y minutes</span>
-            <input type="number" min="1" name="alert_window_minutes" value="{{ request.form.get('alert_window_minutes', alert_rule.alert_window_minutes if alert_rule else 15) }}" required>
+            <input id="alert-window-minutes" type="number" min="1" name="alert_window_minutes" value="{{ request.form.get('alert_window_minutes', alert_rule.alert_window_minutes if alert_rule else 15) }}" required>
           </label>
         </div>
 
         <div class="form-actions">
-          <button type="button" onclick="window.location='{{ url_for('alerts_screen') }}'">Cancel</button>
+          <button type="submit" formaction="{{ url_for('alerts_screen') }}" formmethod="get" formnovalidate>Cancel</button>
           <button type="submit">Save</button>
         </div>
       </form>

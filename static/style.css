@@ -98,6 +98,11 @@ table {
   width: 200px;
 }
 
+.alerts-col-monitors,
+.alerts-col-communication {
+  width: 220px;
+}
+
 .alerts-col-actions {
   width: 240px;
 }
@@ -167,6 +172,10 @@ th {
   flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+}
+
+.actions-right {
+  justify-content: flex-end;
 }
 
 .actions form,
@@ -252,6 +261,18 @@ button {
   max-width: 760px;
 }
 
+.communication-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.communication-left,
+.communication-right {
+  margin-bottom: 0;
+}
+
 .check-form {
   display: grid;
   gap: 16px;
@@ -264,6 +285,12 @@ button {
   gap: 16px;
   width: 100%;
   min-width: 0;
+}
+
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .two-col {
@@ -334,7 +361,8 @@ legend {
   .actions,
   .form-actions,
   .section-header,
-  .alert-row {
+  .alert-row,
+  .communication-grid {
     display: grid;
   }
 }

@@ -1,0 +1,31 @@
+name: Python checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile Python files
+        run: python -m py_compile app.py alerts.py communication.py common.py websites.py
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test*.py"
+        env:
+          DATA_DIR: /tmp
+          FLASK_DEBUG: "1"

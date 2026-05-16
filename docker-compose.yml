@@ -1,0 +1,18 @@
+services:
+  monitor:
+    build: .
+    ports:
+      - "5001:5000"
+    environment:
+      - HOST=0.0.0.0
+      - SECRET_KEY=${SECRET_KEY}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_USE_TLS=${SMTP_USE_TLS}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    # Uncomment to persist the database to your local machine:
+    # volumes:
+    #   - ./data:/app/data
+    restart: unless-stopped

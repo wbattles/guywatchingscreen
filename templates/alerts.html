@@ -16,6 +16,7 @@
             <col class="alerts-col-name">
             <col class="alerts-col-rule">
             <col class="alerts-col-monitors">
+            <col class="alerts-col-communication">
             <col class="alerts-col-actions">
           </colgroup>
           <thead>
@@ -23,6 +24,7 @@
               <th>Name</th>
               <th>Rule</th>
               <th>Monitors</th>
+              <th>Communication</th>
               <th></th>
             </tr>
           </thead>
@@ -34,16 +36,22 @@
                 <td>
                   {{ item.monitor_count }}
                   {% if item.monitor_names %}
-                    <div class="meta cell-scroll">{{ item.monitor_names }}</div>
+                    <div class="meta cell-scroll">{{ item.monitor_names | replace(',', ', ') }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {{ item.communication_count }}
+                  {% if item.communication_names %}
+                    <div class="meta cell-scroll">{{ item.communication_names | replace(',', ', ') }}</div>
                   {% endif %}
                 </td>
                 <td>
                   <div class="actions">
                     <form method="get" action="{{ url_for('edit_alert_rule', alert_rule_id=item.id) }}">
-                      <button type="submit">Edit alert</button>
+                      <button type="submit">Edit</button>
                     </form>
-                    <form method="post" action="{{ url_for('delete_alert_rule', alert_rule_id=item.id) }}">
-                      <button type="submit">Delete alert</button>
+                    <form method="post" action="{{ url_for('delete_alert_rule', alert_rule_id=item.id) }}" onsubmit="return confirm('Delete this alert rule?');">
+                      <button type="submit">Delete</button>
                     </form>
                   </div>
                 </td>
@@ -53,7 +61,7 @@
         </table>
       </div>
     {% else %}
-      <p>No monitors yet. Add a website first.</p>
+      <p>No alert rules yet.</p>
     {% endif %}
   </section>
 {% endblock %}

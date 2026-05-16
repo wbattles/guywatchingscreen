@@ -1,0 +1,59 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <div class="communication-grid">
+    <section class="panel form-panel communication-left">
+      <h2>Email setup</h2>
+
+      {% if email_settings.sender_email or email_settings.smtp_host %}
+        <p><strong>From:</strong> {{ email_settings.sender_email or 'Not set' }}</p>
+        <p><strong>SMTP host:</strong> {{ email_settings.smtp_host or 'Not set' }}</p>
+        <p><strong>SMTP port:</strong> {{ email_settings.smtp_port }}</p>
+        <p><strong>TLS:</strong> {% if email_settings.use_tls %}On{% else %}Off{% endif %}</p>
+      {% else %}
+        <p>No email setup yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="panel communication-right">
+      <div class="section-header">
+        <h2>Email communication</h2>
+        <form method="get" action="{{ url_for('create_email_recipient') }}">
+          <button type="submit">Add email</button>
+        </form>
+      </div>
+
+      {% if email_recipients %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for recipient in email_recipients %}
+                <tr>
+                  <td>{{ recipient.email }}</td>
+                  <td>
+                    <div class="actions actions-right">
+                      <form method="get" action="{{ url_for('edit_email_recipient', recipient_id=recipient.id) }}">
+                        <button type="submit">Edit</button>
+                      </form>
+                      <form method="post" action="{{ url_for('delete_email_recipient', recipient_id=recipient.id) }}" onsubmit="return confirm('Delete this email?');">
+                        <button type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>No email communication yet.</p>
+      {% endif %}
+    </section>
+  </div>
+{% endblock %}

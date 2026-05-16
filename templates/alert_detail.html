@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <h2>Alert</h2>
+
+    <p><strong>Monitor:</strong> {{ alert.check_name }}</p>
+    <p><strong>URL:</strong> <a href="{{ alert.check_url }}" target="_blank" rel="noreferrer">{{ alert.check_url }}</a></p>
+    <p><strong>Time:</strong> {{ alert.created_at.replace('T', ' ') }}</p>
+    <p><strong>Type:</strong> {{ alert.alert_type }}</p>
+    {% if alert.alert_rule_name %}
+      <p><strong>Alert rule:</strong> {{ alert.alert_rule_name }}</p>
+    {% endif %}
+
+    <label>
+      <span>Details</span>
+      <textarea rows="10" readonly>{{ alert.detail or alert.message }}</textarea>
+    </label>
+
+    <div class="form-actions">
+      <button type="button" onclick="window.location='{{ url_for('dashboard') }}'">Back</button>
+    </div>
+  </section>
+{% endblock %}

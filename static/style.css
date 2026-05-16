@@ -1,0 +1,340 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f5f7fb;
+  color: #1f2937;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  margin: 0 0 6px;
+}
+
+.page-header p {
+  margin: 0;
+  color: #6b7280;
+}
+
+.panel {
+  background: white;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  margin-bottom: 20px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.checks-table-wrap {
+  max-height: 720px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: 1100px;
+}
+
+.checks-col-name {
+  width: 16%;
+}
+
+.checks-col-url {
+  width: 22%;
+}
+
+.checks-col-status {
+  width: 11%;
+}
+
+.checks-col-successes,
+.checks-col-failures {
+  width: 10%;
+}
+
+.checks-col-frequency {
+  width: 11%;
+}
+
+.checks-col-last-check {
+  width: 14%;
+}
+
+.checks-col-actions {
+  width: 20%;
+}
+
+.alerts-col-name {
+  width: 176px;
+}
+
+.alerts-col-rule {
+  width: 200px;
+}
+
+.alerts-col-actions {
+  width: 240px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: top;
+}
+
+th {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.meta {
+  color: #6b7280;
+  font-size: 12px;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.cell-scroll {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+
+.cell-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.pill {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #e5e7eb;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.pill-up {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.pill-down {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.pill-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.actions form,
+.page-header form,
+.form-actions form {
+  margin: 0;
+}
+
+td,
+th,
+button {
+  overflow-wrap: anywhere;
+}
+
+.flash-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.flash {
+  padding: 12px 14px;
+}
+
+.flash-success {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.flash-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.alerts {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.alerts li {
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.alerts li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.alert-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.alert-link {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.alert-row form {
+  margin: 0;
+}
+
+.form-panel {
+  max-width: 760px;
+}
+
+.check-form {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+label {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  font: inherit;
+}
+
+textarea {
+  resize: none;
+}
+
+small {
+  color: #6b7280;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+}
+
+fieldset {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+}
+
+legend {
+  padding: 0 6px;
+}
+
+.checkbox-list {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  width: auto;
+}
+
+@media (max-width: 760px) {
+  .page-header,
+  .two-col,
+  .actions,
+  .form-actions,
+  .section-header,
+  .alert-row {
+    display: grid;
+  }
+}

@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <h2>{% if check %}Edit check{% else %}Add check{% endif %}</h2>
+
+    <form method="post" class="check-form">
+      <label>
+        <span>Name</span>
+        <input type="text" name="name" value="{{ check.name if check else request.form.get('name', '') }}" required>
+      </label>
+
+      <label>
+        <span>URL</span>
+        <input type="url" name="url" value="{{ check.url if check else request.form.get('url', '') }}" placeholder="https://example.com" required>
+      </label>
+
+      <div class="grid two-col">
+        <label>
+          <span>Frequency (minutes)</span>
+          <input type="number" min="1" name="frequency_minutes" value="{{ check.frequency_minutes if check else request.form.get('frequency_minutes', 5) }}" required>
+        </label>
+
+        <label>
+          <span>Timeout (seconds)</span>
+          <input type="number" min="1" name="timeout_seconds" value="{{ check.timeout_seconds if check else request.form.get('timeout_seconds', 10) }}" required>
+        </label>
+      </div>
+
+      <label>
+        <span>Blackout periods</span>
+        <textarea name="blackout_periods" rows="5" placeholder="23:00-06:00&#10;12:30-13:00">{{ check.blackout_periods if check else request.form.get('blackout_periods', '') }}</textarea>
+        <small>One range per line. Format: HH:MM-HH:MM</small>
+      </label>
+
+      <div class="form-actions">
+        <button type="button" onclick="window.location='{{ url_for('dashboard') }}'">Cancel</button>
+        <button type="submit">Save</button>
+        {% if check %}
+          <form method="post" action="{{ url_for('delete_check', check_id=check.id) }}">
+            <button type="submit">Delete website</button>
+          </form>
+        {% endif %}
+      </div>
+    </form>
+  </section>
+{% endblock %}

@@ -11,7 +11,7 @@
 
 [![Casino funds](https://img.shields.io/badge/Casino_funds-Ko--fi-ff5f5f?logo=ko-fi&logoColor=white)](https://ko-fi.com/wbattles)
 
-Simple HTTP and HTTPS monitoring.
+Like a guy watching some screens.
 
 ## Run locally
 

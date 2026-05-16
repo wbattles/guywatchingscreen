@@ -1,5 +1,7 @@
 import os
 
+from flask import send_from_directory
+
 from common import app, init_db, get_db
 import alerts  # noqa: F401
 import communication  # noqa: F401
@@ -10,6 +12,11 @@ from websites import start_scheduler
 init_db()
 if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
     start_scheduler()
+
+
+@app.route("/")
+def index():
+    return send_from_directory(app.static_folder, "index.html")
 
 
 @app.route("/health")

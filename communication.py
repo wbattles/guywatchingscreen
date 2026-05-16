@@ -4,13 +4,13 @@ import sqlite3
 from pathlib import Path
 from email.message import EmailMessage
 
-from flask import flash, redirect, render_template, request, url_for
+from flask import jsonify, request
 
 from common import app, get_db, iso, looks_like_email, now_utc
 
 
-def validate_email_recipient_form(form):
-    email = form.get("email", "").strip()
+def validate_email_recipient_json(data):
+    email = (data.get("email") or "").strip()
     if not email:
         raise ValueError("Email is required.")
     if not looks_like_email(email):
@@ -19,12 +19,6 @@ def validate_email_recipient_form(form):
 
 
 def get_smtp_password():
-    """Return the SMTP password.
-
-    The password is read from a Docker secret file at ``/run/secrets/smtp_password``
-    if it exists, otherwise from the ``SMTP_PASSWORD`` environment variable.
-    Returns an empty string if neither is set.
-    """
     secret_path = Path("/run/secrets/smtp_password")
     if secret_path.is_file():
         try:
@@ -43,16 +37,6 @@ def get_env_int(name, default):
 
 
 def get_env_email_settings():
-    """Read email configuration from environment variables or Docker secrets.
-
-    Expected environment variables:
-        SENDER_EMAIL   - From address
-        SMTP_HOST      - Hostname of SMTP server
-        SMTP_PORT      - Port (defaults to 587)
-        SMTP_USER      - Username (optional)
-        SMTP_USE_TLS   - "1" or "0" (defaults to 1)
-        SMTP_PASSWORD  - Password (read from env or secret file via get_smtp_password())
-    """
     return {
         "sender_email": os.getenv("SENDER_EMAIL", ""),
         "smtp_host": os.getenv("SMTP_HOST", ""),
@@ -60,6 +44,7 @@ def get_env_email_settings():
         "smtp_user": os.getenv("SMTP_USER", ""),
         "use_tls": get_env_int("SMTP_USE_TLS", 1),
     }
+
 
 def fetch_email_recipients(db):
     return db.execute(
@@ -81,14 +66,12 @@ def fetch_email_recipients_for_alert_rule(db, alert_rule_id):
 
 
 def send_email_alert(db, check, message, alert_rule_id=None):
-    # Email configuration is now sourced from environment variables / Docker secrets.
     settings = get_env_email_settings()
     if alert_rule_id is None:
         recipients = []
     else:
         recipients = fetch_email_recipients_for_alert_rule(db, alert_rule_id)
     recipient_emails = [row["email"] for row in recipients]
-    # Require host, at least one recipient, and a sender address.
     if not settings["smtp_host"] or not recipient_emails or not settings["sender_email"]:
         return "dashboard"
 
@@ -99,7 +82,6 @@ def send_email_alert(db, check, message, alert_rule_id=None):
     email.set_content(message)
 
     smtp_password = get_smtp_password()
-    # Port 465 uses implicit TLS (SMTP_SSL); all other ports use STARTTLS.
     if settings["smtp_port"] == 465:
         context_cls = smtplib.SMTP_SSL
         use_starttls = False
@@ -117,67 +99,62 @@ def send_email_alert(db, check, message, alert_rule_id=None):
     return "email"
 
 
-@app.route("/communication")
-def communication_screen():
+# --- API routes ---
+
+@app.route("/api/communication")
+def api_communication():
     email_settings = get_env_email_settings()
     email_recipients = fetch_email_recipients(get_db())
-    return render_template("communication.html", email_settings=email_settings, email_recipients=email_recipients)
+    return jsonify({
+        "email_settings": email_settings,
+        "email_recipients": [dict(r) for r in email_recipients],
+    })
 
 
-@app.route("/communication/emails/new", methods=["GET", "POST"])
-def create_email_recipient():
-    db = get_db()
-    if request.method == "POST":
-        try:
-            data = validate_email_recipient_form(request.form)
-            db.execute(
-                "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, ?)",
-                (data["email"], iso(now_utc())),
-            )
-            db.commit()
-            flash("Email added.", "success")
-            return redirect(url_for("communication_screen"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-        except sqlite3.IntegrityError:
-            flash("That email already exists.", "error")
-    return render_template("communication_email_form.html", recipient=None)
+@app.route("/api/communication/emails", methods=["POST"])
+def api_create_email_recipient():
+    try:
+        data = validate_email_recipient_json(request.get_json(force=True))
+        db = get_db()
+        db.execute(
+            "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, ?)",
+            (data["email"], iso(now_utc())),
+        )
+        db.commit()
+        return jsonify({"ok": True}), 201
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "That email already exists."}), 409
 
 
-@app.route("/communication/emails/<int:recipient_id>/edit", methods=["GET", "POST"])
-def edit_email_recipient(recipient_id):
+@app.route("/api/communication/emails/<int:recipient_id>", methods=["PUT"])
+def api_update_email_recipient(recipient_id):
     db = get_db()
     recipient = db.execute(
         "SELECT * FROM communication_email_recipients WHERE id = ?",
         (recipient_id,),
     ).fetchone()
     if recipient is None:
-        flash("Email not found.", "error")
-        return redirect(url_for("communication_screen"))
-
-    if request.method == "POST":
-        try:
-            data = validate_email_recipient_form(request.form)
-            db.execute(
-                "UPDATE communication_email_recipients SET email = ? WHERE id = ?",
-                (data["email"], recipient_id),
-            )
-            db.commit()
-            flash("Email updated.", "success")
-            return redirect(url_for("communication_screen"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-        except sqlite3.IntegrityError:
-            flash("That email already exists.", "error")
-
-    return render_template("communication_email_form.html", recipient=recipient)
+        return jsonify({"error": "Email not found."}), 404
+    try:
+        data = validate_email_recipient_json(request.get_json(force=True))
+        db.execute(
+            "UPDATE communication_email_recipients SET email = ? WHERE id = ?",
+            (data["email"], recipient_id),
+        )
+        db.commit()
+        return jsonify({"ok": True})
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "That email already exists."}), 409
 
 
-@app.post("/communication/emails/<int:recipient_id>/delete")
-def delete_email_recipient(recipient_id):
+@app.route("/api/communication/emails/<int:recipient_id>", methods=["DELETE"])
+def api_delete_email_recipient(recipient_id):
     db = get_db()
     db.execute("DELETE FROM alert_rule_email_recipients WHERE recipient_id = ?", (recipient_id,))
     db.execute("DELETE FROM communication_email_recipients WHERE id = ?", (recipient_id,))
     db.commit()
-    flash("Email deleted.", "success")
-    return redirect(url_for("communication_screen"))
+    return jsonify({"ok": True})

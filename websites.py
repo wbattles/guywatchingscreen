@@ -7,7 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import flash, redirect, render_template, request, url_for
 
 from alerts import alert_rules_for_check, create_alert, failure_count_within_window, set_alert_rule_state
-from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_local, open_db, parse_blackout_periods, parse_int_field
+from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, open_db, parse_blackout_periods, parse_int_field
 
 
 SCHEDULER = BackgroundScheduler(daemon=True)
@@ -64,7 +64,7 @@ def run_check(check_id):
             error_message = str(exc)
 
         status_code = response.status_code if response else None
-        checked_at = now_local()
+        checked_at = now_utc()
         next_run_at = checked_at + timedelta(minutes=check["frequency_minutes"])
 
         db.execute(
@@ -85,52 +85,49 @@ def run_check(check_id):
 
         alert_rules = alert_rules_for_check(db, check_id)
         any_active = False
+        pending_alerts = []
+
         for alert_rule in alert_rules:
             failures = failure_count_within_window(db, check_id, alert_rule["alert_window_minutes"])
             threshold_hit = failures >= alert_rule["alert_failures"]
             if threshold_hit:
                 any_active = True
                 if not alert_rule["alert_active"]:
-                    message = (
-                        f"{check['name']} failed {failures} times in the last "
-                        f"{alert_rule['alert_window_minutes']} minutes for alert {alert_rule['name']}. "
-                        f"Last status: {status_code or 'error'}."
-                    )
-                    detail = error_message or f"HTTP {status_code}"
-                    create_alert(db, check, "failure", message, alert_rule["id"], detail)
+                    pending_alerts.append({
+                        "rule": alert_rule,
+                        "failures": failures,
+                        "message": (
+                            f"{check['name']} failed {failures} times in the last "
+                            f"{alert_rule['alert_window_minutes']} minutes for alert {alert_rule['name']}. "
+                            f"Last status: {status_code or 'error'}."
+                        ),
+                        "detail": error_message or f"HTTP {status_code}",
+                    })
                     set_alert_rule_state(db, alert_rule["id"], check_id, True)
             elif alert_rule["alert_active"]:
                 set_alert_rule_state(db, alert_rule["id"], check_id, False)
 
         db.execute("UPDATE checks SET alert_active = ? WHERE id = ?", (int(any_active), check_id))
         # Commit all DB writes before sending email so the SQLite write lock
-        # is released before the SMTP call (which can block up to 20 seconds).
+        # is released before any SMTP call (which can block up to 20 seconds).
         db.commit()
 
-        for alert_rule in alert_rules:
-            failures = failure_count_within_window(db, check_id, alert_rule["alert_window_minutes"])
-            if failures >= alert_rule["alert_failures"] and not alert_rule["alert_active"]:
-                message = (
-                    f"{check['name']} failed {failures} times in the last "
-                    f"{alert_rule['alert_window_minutes']} minutes for alert {alert_rule['name']}. "
-                    f"Last status: {status_code or 'error'}."
-                )
-                detail = error_message or f"HTTP {status_code}"
-                create_alert(db, check, "failure", message, alert_rule["id"], detail)
-                db.commit()
+        for pending in pending_alerts:
+            create_alert(db, check, "failure", pending["message"], pending["rule"]["id"], pending["detail"])
+            db.commit()
     finally:
         db.close()
 
 
 def prune_old_results(db):
-    cutoff = iso(now_local() - timedelta(days=7))
+    cutoff = iso(now_utc() - timedelta(days=7))
     db.execute("DELETE FROM check_results WHERE checked_at < ?", (cutoff,))
     db.commit()
 
 
 def run_pending_checks():
     db = open_db()
-    current_time = now_local()
+    current_time = now_utc()
     checks = db.execute(
         """
         SELECT id FROM checks
@@ -158,13 +155,21 @@ def run_pending_checks():
 
 def start_scheduler():
     if not SCHEDULER.running:
-        SCHEDULER.add_job(run_pending_checks, "interval", seconds=30, id="pending-checks", replace_existing=True)
+        SCHEDULER.add_job(
+            run_pending_checks,
+            "interval",
+            seconds=30,
+            id="pending-checks",
+            replace_existing=True,
+            max_instances=2,
+            coalesce=True,
+        )
         SCHEDULER.start()
 
 
 def dashboard_data():
     db = get_db()
-    window_start = iso(now_local() - timedelta(hours=1))
+    window_start = iso(now_utc() - timedelta(hours=1))
     checks = db.execute(
         """
         SELECT c.*, COALESCE(rule_counts.alert_rule_count, 0) AS alert_rule_count,
@@ -211,7 +216,7 @@ def create_check():
     if request.method == "POST":
         try:
             data = validate_check_form(request.form)
-            timestamp = iso(now_local())
+            timestamp = iso(now_utc())
             db = get_db()
             db.execute(
                 """

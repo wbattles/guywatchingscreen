@@ -36,13 +36,13 @@
                 <td>
                   {{ item.monitor_count }}
                   {% if item.monitor_names %}
-                    <div class="meta cell-scroll">{{ item.monitor_names }}</div>
+                    <div class="meta cell-scroll">{{ item.monitor_names | replace(',', ', ') }}</div>
                   {% endif %}
                 </td>
                 <td>
                   {{ item.communication_count }}
                   {% if item.communication_names %}
-                    <div class="meta cell-scroll">{{ item.communication_names }}</div>
+                    <div class="meta cell-scroll">{{ item.communication_names | replace(',', ', ') }}</div>
                   {% endif %}
                 </td>
                 <td>

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from flask import flash, redirect, render_template, request, url_for
 
-from common import app, get_db, iso, now_local, parse_int_field
+from common import app, get_db, iso, now_utc, parse_int_field
 from communication import fetch_email_recipients, send_email_alert
 
 
@@ -43,12 +43,12 @@ def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None
         INSERT INTO alerts (check_id, alert_rule_id, created_at, alert_type, message, detail, delivered_via)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (check["id"], alert_rule_id, iso(now_local()), alert_type, message, detail, delivered_via),
+        (check["id"], alert_rule_id, iso(now_utc()), alert_type, message, detail, delivered_via),
     )
 
 
 def failure_count_within_window(db, check_id, window_minutes):
-    window_start = now_local() - timedelta(minutes=window_minutes)
+    window_start = now_utc() - timedelta(minutes=window_minutes)
     row = db.execute(
         """
         SELECT COUNT(*) AS failure_count
@@ -195,7 +195,7 @@ def create_alert_rule():
                 INSERT INTO alert_rules (name, alert_failures, alert_window_minutes, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (data["name"], data["alert_failures"], data["alert_window_minutes"], iso(now_local())),
+                (data["name"], data["alert_failures"], data["alert_window_minutes"], iso(now_utc())),
             )
             alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             for check_id in data["check_ids"]:

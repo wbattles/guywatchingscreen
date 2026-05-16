@@ -30,6 +30,7 @@ def get_smtp_password():
         try:
             return secret_path.read_text().strip()
         except Exception:
+            app.logger.exception("Failed to read SMTP password from secret file: %s", secret_path)
             return ""
     return os.getenv("SMTP_PASSWORD", "")
 

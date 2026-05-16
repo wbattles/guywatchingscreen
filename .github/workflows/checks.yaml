@@ -23,3 +23,8 @@ jobs:
 
       - name: Compile Python files
         run: python -m py_compile app.py alerts.py communication.py common.py websites.py
+
+      - name: Verify app imports
+        run: python -c "import app"
+        env:
+          DATA_DIR: /tmp

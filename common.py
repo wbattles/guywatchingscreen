@@ -152,7 +152,7 @@ def init_db():
     db.close()
 
 
-def now_local():
+def now_utc():
     return datetime.now(timezone.utc).replace(microsecond=0)
 
 
@@ -195,7 +195,8 @@ def parse_blackout_periods(raw_text):
 
 
 def is_in_blackout(raw_text, current_time=None):
-    current_time = current_time or datetime.now(timezone.utc).time()
+    # Use local wall-clock time so blackout periods match user expectations.
+    current_time = current_time or datetime.now().astimezone().time()
     for start, end in parse_blackout_periods(raw_text):
         if start <= end:
             if start <= current_time <= end:

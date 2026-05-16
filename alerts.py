@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from flask import flash, redirect, render_template, request, url_for
 
 from common import app, get_db, iso, now_local, parse_int_field
@@ -44,7 +46,7 @@ def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None
 
 
 def failure_count_within_window(db, check_id, window_minutes):
-    window_start = now_local() - __import__("datetime").timedelta(minutes=window_minutes)
+    window_start = now_local() - timedelta(minutes=window_minutes)
     row = db.execute(
         """
         SELECT COUNT(*) AS failure_count

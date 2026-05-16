@@ -13,11 +13,19 @@ from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, o
 SCHEDULER = BackgroundScheduler(daemon=True)
 
 
+def _safe_int(data, key, default, label):
+    raw = data.get(key, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number.")
+
+
 def validate_check_json(data):
     name = (data.get("name") or "").strip()
     url = (data.get("url") or "").strip()
-    frequency_minutes = int(data.get("frequency_minutes", 5))
-    timeout_seconds = int(data.get("timeout_seconds", 10))
+    frequency_minutes = _safe_int(data, "frequency_minutes", 5, "Frequency")
+    timeout_seconds = _safe_int(data, "timeout_seconds", 10, "Timeout")
     blackout_periods = (data.get("blackout_periods") or "").strip()
 
     if not name:
@@ -51,6 +59,8 @@ def run_check(check_id):
         if check is None:
             return
         if is_in_blackout(check["blackout_periods"]):
+            # Advance next_run_at so the scheduler doesn't re-select this check
+            # on every tick for the entire blackout window.
             next_run_at = now_utc() + timedelta(minutes=check["frequency_minutes"])
             db.execute("UPDATE checks SET next_run_at = ? WHERE id = ?", (iso(next_run_at), check_id))
             db.commit()
@@ -113,6 +123,8 @@ def run_check(check_id):
                 set_alert_rule_state(db, alert_rule["id"], check_id, False)
 
         db.execute("UPDATE checks SET alert_active = ? WHERE id = ?", (int(any_active), check_id))
+        # Commit all DB writes before sending email so the SQLite write lock
+        # is released before any SMTP call (which can block up to 20 seconds).
         db.commit()
 
         for pending in pending_alerts:

@@ -571,6 +571,30 @@ legend {
   color: var(--bg);
 }
 
+/* -- recipient list -- */
+
+.recipient-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.recipient-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.recipient-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
 /* -- active nav link -- */
 
 .nav-link.active {

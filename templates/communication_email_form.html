@@ -11,7 +11,7 @@
       </label>
 
       <div class="form-actions">
-        <button type="button" onclick="window.location='{{ url_for('communication_screen') }}'">Cancel</button>
+        <button type="submit" formaction="{{ url_for('communication_screen') }}" formmethod="get">Cancel</button>
         <button type="submit">Save</button>
       </div>
     </form>

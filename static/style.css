@@ -98,6 +98,11 @@ table {
   width: 200px;
 }
 
+.alerts-col-monitors,
+.alerts-col-communication {
+  width: 220px;
+}
+
 .alerts-col-actions {
   width: 240px;
 }

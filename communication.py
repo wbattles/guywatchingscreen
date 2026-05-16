@@ -5,38 +5,7 @@ from email.message import EmailMessage
 
 from flask import flash, redirect, render_template, request, url_for
 
-from common import app, get_db, looks_like_email, parse_int_field
-
-
-def validate_email_settings_form(form):
-    # Password is no longer stored in the DB; it is read from an environment variable
-    # or Docker secret at runtime. The form therefore does not contain a password field.
-    sender_email = form.get("sender_email", "").strip()
-    smtp_host = form.get("smtp_host", "").strip()
-    smtp_port = parse_int_field(form, "smtp_port", 587, "SMTP port")
-    smtp_user = form.get("smtp_user", "").strip()
-    use_tls = 1 if form.get("use_tls") == "on" else 0
-
-    has_any_email_setting = any([sender_email, smtp_host, smtp_user])
-
-    if sender_email and not looks_like_email(sender_email):
-        raise ValueError("Sender email must be a valid email address.")
-    if smtp_port < 1 or smtp_port > 65535:
-        raise ValueError("SMTP port must be between 1 and 65535.")
-    if has_any_email_setting:
-        if not sender_email:
-            raise ValueError("Sender email is required for email alerts.")
-        if not smtp_host:
-            raise ValueError("SMTP host is required for email alerts.")
-
-    return {
-        "sender_email": sender_email,
-        "smtp_host": smtp_host,
-        "smtp_port": smtp_port,
-        "smtp_user": smtp_user,
-
-        "use_tls": use_tls,
-    }
+from common import app, get_db, looks_like_email
 
 
 def validate_email_recipient_form(form):
@@ -64,17 +33,6 @@ def get_smtp_password():
     return os.getenv("SMTP_PASSWORD", "")
 
 
-def fetch_email_settings(db):
-    # Deprecated: settings are now read from environment variables / Docker secrets.
-    # This function remains for backward compatibility but returns empty defaults.
-    return {
-        "sender_email": "",
-        "smtp_host": "",
-        "smtp_port": 587,
-        "smtp_user": "",
-        "use_tls": 1,
-    }
-
 def get_env_email_settings():
     """Read email configuration from environment variables or Docker secrets.
 
@@ -93,8 +51,6 @@ def get_env_email_settings():
         "smtp_user": os.getenv("SMTP_USER", ""),
         "use_tls": int(os.getenv("SMTP_USE_TLS", "1")),
     }
-
-
 
 def fetch_email_recipients(db):
     return db.execute(
@@ -144,53 +100,11 @@ def send_email_alert(db, check, message, alert_rule_id=None):
     return "email"
 
 
-def communication_data():
-    db = get_db()
-    return fetch_email_settings(db), fetch_email_recipients(db)
-
-
 @app.route("/communication")
 def communication_screen():
     email_settings = get_env_email_settings()
     email_recipients = fetch_email_recipients(get_db())
     return render_template("communication.html", email_settings=email_settings, email_recipients=email_recipients)
-
-
-@app.route("/communication/email-settings", methods=["GET", "POST"])
-def edit_email_settings():
-    db = get_db()
-    if request.method == "POST":
-        try:
-            data = validate_email_settings_form(request.form)
-            db.execute(
-                """
-                INSERT INTO communication_email_settings (
-                    id, sender_email, smtp_host, smtp_port,
-                    smtp_user, use_tls
-                ) VALUES (1, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    sender_email = excluded.sender_email,
-                    smtp_host = excluded.smtp_host,
-                    smtp_port = excluded.smtp_port,
-                    smtp_user = excluded.smtp_user,
-                    use_tls = excluded.use_tls
-                """,
-                (
-                    data["sender_email"],
-                    data["smtp_host"],
-                    data["smtp_port"],
-                    data["smtp_user"],
-                    data["use_tls"],
-                ),
-            )
-            db.commit()
-            flash("Communication settings saved.", "success")
-            return redirect(url_for("communication_screen"))
-        except ValueError as exc:
-            flash(str(exc), "error")
-
-    email_settings = fetch_email_settings(db)
-    return render_template("communication_settings_form.html", email_settings=email_settings)
 
 
 @app.route("/communication/emails/new", methods=["GET", "POST"])

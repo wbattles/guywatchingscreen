@@ -20,6 +20,8 @@ Simple HTTP and HTTPS monitoring.
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
+# edit .env with your real SMTP values
 python app.py
 ```
 
@@ -36,6 +38,7 @@ Open `http://127.0.0.1:5000`
 ## Communication
 
 - Email configuration is read from environment variables or Docker secrets. The **Communication** page now only shows the current settings and the list of recipient emails.
+- For normal local Python runs, the app will also load variables from a local `.env` file automatically.
 - Set the following environment variables (or provide Docker secrets) before starting the app:
   - `SENDER_EMAIL` – address used in the **From** field
   - `SMTP_HOST` – SMTP server hostname
@@ -44,6 +47,17 @@ Open `http://127.0.0.1:5000`
   - `SMTP_USE_TLS` – `1` to enable TLS (default) or `0` to disable
   - `SMTP_PASSWORD` – password for the SMTP server (can be provided via a Docker secret named `smtp_password`)
 - Recipients are still managed through the UI on the **Communication** page.
+
+Example `.env`:
+
+```env
+SENDER_EMAIL=alerts@example.com
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=alerts@example.com
+SMTP_USE_TLS=1
+SMTP_PASSWORD=change-me
+```
 
 ## Blackout periods
 

@@ -105,15 +105,6 @@ def init_db():
                 FOREIGN KEY (check_id) REFERENCES checks (id)
             );
 
-            CREATE TABLE IF NOT EXISTS communication_email_settings (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                sender_email TEXT NOT NULL DEFAULT '',
-                smtp_host TEXT NOT NULL DEFAULT '',
-                smtp_port INTEGER NOT NULL DEFAULT 587,
-                smtp_user TEXT NOT NULL DEFAULT '',
-                use_tls INTEGER NOT NULL DEFAULT 1
-            );
-
             CREATE TABLE IF NOT EXISTS communication_email_recipients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 email TEXT NOT NULL UNIQUE,

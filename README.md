@@ -1,4 +1,4 @@
-# Site Monitor
+# guywatchingscreen
 
 Simple HTTP and HTTPS monitoring.
 
@@ -6,18 +6,13 @@ Simple HTTP and HTTPS monitoring.
 
 - checks websites on a schedule
 - expects a `200` response
-- tracks successes and failures
+- tracks success and failure counts from the last hour
 - supports blackout time windows
-- alerts after `X` failures in `Y` minutes
-- shows checks on one dashboard
-- lets you edit each check
-
-## Stack
-
-- Python
-- Flask
-- SQLite
-- APScheduler
+- lets you edit each website
+- has separate alert rules
+- lets one alert rule apply to multiple monitors
+- has a communication page for email settings
+- shows recent alerts on the dashboard
 
 ## Run it
 
@@ -30,20 +25,20 @@ python app.py
 
 Open `http://127.0.0.1:5000`
 
-## Optional email alerts
+## Alerts
 
-Set these environment variables if you want email delivery:
+- alerts are configured on the **Alerts** page
+- alert rules use `X failures in Y minutes`
+- failures are counted in a rolling time window
+- successes do not reset the count
+- a monitor stays marked down until the rolling failure count drops below the rule
 
-```bash
-export SMTP_HOST="smtp.example.com"
-export SMTP_PORT="587"
-export SMTP_USER="user"
-export SMTP_PASSWORD="password"
-export ALERT_TO="you@example.com"
-export ALERT_FROM="monitor@example.com"
-```
+## Communication
 
-Without those, alerts still appear on the dashboard.
+- email settings live on the **Communication** page
+- put in the alert email address there
+- put in the SMTP sender settings there too
+- no startup environment variables are needed for email
 
 ## Blackout periods
 
@@ -56,5 +51,7 @@ Use one time range per line:
 
 ## Notes
 
-- This app treats anything other than `200` as a failure.
-- Checks run in the background every 30 seconds and only fire when due.
+- this app treats anything other than `200` as a failure
+- redirects are treated as failures
+- checks run in the background every 30 seconds and only fire when due
+- old check results are pruned automatically

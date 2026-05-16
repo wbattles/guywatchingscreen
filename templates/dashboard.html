@@ -91,7 +91,7 @@
     <div class="section-header">
       <h2>Recent alerts</h2>
       {% if alerts %}
-        <form method="post" action="{{ url_for('clear_alerts') }}">
+        <form method="post" action="{{ url_for('clear_alerts') }}" onsubmit="return confirm('Clear all recent alerts?');">
           <button type="submit">Clear all</button>
         </form>
       {% endif %}
@@ -105,7 +105,7 @@
               <span class="meta">{{ alert.created_at.replace('T', ' ') }}</span>
               <div>{{ alert.message }}</div>
             </a>
-            <form method="post" action="{{ url_for('delete_alert', alert_id=alert.id) }}">
+            <form method="post" action="{{ url_for('delete_alert', alert_id=alert.id) }}" onsubmit="return confirm('Delete this alert?');">
               <button type="submit">Delete</button>
             </form>
           </li>

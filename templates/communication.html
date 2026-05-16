@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <h2>Communication</h2>
+
+    <form method="post" class="check-form">
+      <label>
+        <span>Alert email</span>
+        <input type="email" name="recipient_email" value="{{ request.form.get('recipient_email', email_settings.recipient_email) }}" placeholder="you@example.com">
+      </label>
+
+      <div class="grid two-col">
+        <label>
+          <span>Sender email</span>
+          <input type="email" name="sender_email" value="{{ request.form.get('sender_email', email_settings.sender_email) }}" placeholder="alerts@example.com">
+        </label>
+
+        <label>
+          <span>SMTP host</span>
+          <input type="text" name="smtp_host" value="{{ request.form.get('smtp_host', email_settings.smtp_host) }}" placeholder="smtp.example.com">
+        </label>
+      </div>
+
+      <div class="grid two-col">
+        <label>
+          <span>SMTP port</span>
+          <input type="number" min="1" max="65535" name="smtp_port" value="{{ request.form.get('smtp_port', email_settings.smtp_port) }}" required>
+        </label>
+
+        <label>
+          <span>SMTP user</span>
+          <input type="text" name="smtp_user" value="{{ request.form.get('smtp_user', email_settings.smtp_user) }}">
+        </label>
+      </div>
+
+      <label>
+        <span>SMTP password</span>
+        <input type="password" name="smtp_password" value="{{ request.form.get('smtp_password', email_settings.smtp_password) }}">
+      </label>
+
+      <label class="checkbox-row">
+        <input type="checkbox" name="use_tls" {% if request.form.get('use_tls', 'on' if email_settings.use_tls else '') == 'on' %}checked{% endif %}>
+        <span>Use TLS</span>
+      </label>
+
+      <p class="meta">Slack and text can come here later. Right now this page only sets up email.</p>
+
+      <div class="form-actions">
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

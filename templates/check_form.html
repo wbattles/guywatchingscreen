@@ -36,12 +36,13 @@
       <div class="form-actions">
         <button type="button" onclick="window.location='{{ url_for('dashboard') }}'">Cancel</button>
         <button type="submit">Save</button>
-        {% if check %}
-          <form method="post" action="{{ url_for('delete_check', check_id=check.id) }}">
-            <button type="submit">Delete website</button>
-          </form>
-        {% endif %}
       </div>
     </form>
+
+    {% if check %}
+      <form method="post" action="{{ url_for('delete_check', check_id=check.id) }}" class="form-actions" style="margin-top: 16px;" onsubmit="return confirm('Delete this website?');">
+        <button type="submit">Delete website</button>
+      </form>
+    {% endif %}
   </section>
 {% endblock %}

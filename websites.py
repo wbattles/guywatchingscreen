@@ -7,7 +7,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from flask import jsonify, request
 
 from alerts import alert_rules_for_check, create_alert, failure_count_within_window, set_alert_rule_state
-from common import EXPECTED_STATUS, app, get_db, iso, is_in_blackout, now_utc, open_db, parse_blackout_periods, parse_int_field
+from common import EXPECTED_STATUS, app, get_db, get_json_object, iso, is_in_blackout, now_utc, open_db, parse_blackout_periods, parse_int_field
 
 
 SCHEDULER = BackgroundScheduler(daemon=True)
@@ -141,12 +141,17 @@ def run_pending_checks():
     current_time = now_utc()
     checks = db.execute(
         """
-        SELECT id FROM checks
+        SELECT id, frequency_minutes FROM checks
         WHERE next_run_at IS NULL OR next_run_at <= ?
         ORDER BY COALESCE(next_run_at, created_at)
         """,
         (iso(current_time),),
     ).fetchall()
+    for check in checks:
+        # Claim work before dispatch so overlapping scheduler sweeps don't run it twice.
+        next_run_at = current_time + timedelta(minutes=check["frequency_minutes"])
+        db.execute("UPDATE checks SET next_run_at = ? WHERE id = ?", (iso(next_run_at), check["id"]))
+    db.commit()
     db.close()
 
     if checks:
@@ -242,7 +247,7 @@ def api_dashboard():
 @app.route("/api/checks", methods=["POST"])
 def api_create_check():
     try:
-        data = validate_check_json(request.get_json(force=True))
+        data = validate_check_json(get_json_object(request))
         timestamp = iso(now_utc())
         db = get_db()
         db.execute(
@@ -271,7 +276,7 @@ def api_update_check(check_id):
     if fetch_check(check_id) is None:
         return jsonify({"error": "Check not found."}), 404
     try:
-        data = validate_check_json(request.get_json(force=True))
+        data = validate_check_json(get_json_object(request))
         db = get_db()
         db.execute(
             """

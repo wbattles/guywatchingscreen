@@ -1,9 +1,11 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("FLASK_DEBUG", "1")
+os.environ.setdefault("RUN_SCHEDULER", "0")
 
 from common import looks_like_email, parse_blackout_periods, is_in_blackout, iso, now_utc
 from datetime import time
@@ -63,6 +65,101 @@ class TestIso(unittest.TestCase):
         result = iso(now_utc())
         self.assertNotIn("+", result)
         self.assertNotIn("Z", result)
+
+
+class TestAppImport(unittest.TestCase):
+    def test_app_imports(self):
+        import app
+
+        self.assertIsNotNone(app.app)
+
+    def test_health_route(self):
+        import app
+
+        client = app.app.test_client()
+        response = client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_data(as_text=True), "OK")
+
+
+class TestApiValidation(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import app
+
+        cls.client = app.app.test_client()
+
+    def test_create_check_rejects_non_object_json(self):
+        response = self.client.post("/api/checks", json=[])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
+
+    def test_create_alert_rule_rejects_invalid_json(self):
+        response = self.client.post(
+            "/api/alert-rules",
+            data="{",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
+
+    def test_create_email_rejects_non_object_json(self):
+        response = self.client.post("/api/communication/emails", json=None)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
+
+    def test_delete_missing_alert_returns_404(self):
+        response = self.client.delete("/api/alerts/999999")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json()["error"], "Alert not found.")
+
+    def test_delete_missing_email_returns_404(self):
+        response = self.client.delete("/api/communication/emails/999999")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.get_json()["error"], "Email not found.")
+
+
+class TestSchedulerClaims(unittest.TestCase):
+    def setUp(self):
+        import app
+        from common import get_db
+
+        self.app = app.app
+        self.ctx = self.app.app_context()
+        self.ctx.push()
+        db = get_db()
+        db.execute("DELETE FROM alert_rule_states")
+        db.execute("DELETE FROM alert_rule_checks")
+        db.execute("DELETE FROM alert_rule_email_recipients")
+        db.execute("DELETE FROM alerts")
+        db.execute("DELETE FROM check_results")
+        db.execute("DELETE FROM alert_rules")
+        db.execute("DELETE FROM communication_email_recipients")
+        db.execute("DELETE FROM checks")
+        db.commit()
+
+    def tearDown(self):
+        self.ctx.pop()
+
+    def test_run_pending_checks_claims_due_work(self):
+        from common import get_db
+        import websites
+
+        db = get_db()
+        db.execute(
+            """
+            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("Example", "https://example.com", 5, 10, "", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        db.commit()
+
+        with patch("websites.run_check") as mock_run:
+            websites.run_pending_checks()
+            websites.run_pending_checks()
+
+        self.assertEqual(mock_run.call_count, 1)
 
 
 if __name__ == "__main__":

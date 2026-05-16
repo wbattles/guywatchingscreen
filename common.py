@@ -161,6 +161,13 @@ def parse_int_field(form, field_name, default, label):
         raise ValueError(f"{label} must be a whole number.")
 
 
+def get_json_object(request):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        raise ValueError("Request body must be a JSON object.")
+    return data
+
+
 def looks_like_email(value):
     """Basic email sanity check. Requires local@domain.tld structure."""
     if not value or "@" not in value:

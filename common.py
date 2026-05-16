@@ -4,7 +4,10 @@ from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
 from flask import Flask, g
+
+load_dotenv()
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -14,15 +17,7 @@ DATABASE = DATA_DIR / "monitor.db"
 EXPECTED_STATUS = 200
 
 app = Flask(__name__)
-_secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
-if _secret_key == "dev-secret-key" and not os.environ.get("FLASK_DEBUG"):
-    import warnings
-    warnings.warn(
-        "SECRET_KEY is not set. Using the default dev key is insecure in production. "
-        "Set the SECRET_KEY environment variable.",
-        stacklevel=1,
-    )
-app.config["SECRET_KEY"] = _secret_key
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-key")
 
 
 def get_db():
@@ -37,6 +32,7 @@ def open_db():
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
+    db.execute("PRAGMA journal_mode=WAL")
     return db
 
 
@@ -143,19 +139,6 @@ def init_db():
                 ON alerts (created_at DESC);
             """
         )
-        # Migrations: add columns to existing tables that predate them.
-        migrations = [
-            "ALTER TABLE checks ADD COLUMN alert_active INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE checks ADD COLUMN last_response_time_ms INTEGER",
-            "ALTER TABLE alerts ADD COLUMN alert_rule_id INTEGER",
-            "ALTER TABLE alerts ADD COLUMN detail TEXT",
-            "ALTER TABLE alerts ADD COLUMN delivered_via TEXT NOT NULL DEFAULT 'dashboard'",
-        ]
-        for sql in migrations:
-            try:
-                cursor.execute(sql)
-            except Exception:
-                pass  # column already exists
         db.commit()
     db.close()
 
@@ -165,13 +148,8 @@ def now_utc():
 
 
 def iso(dt):
-    """Return a naive local ISO timestamp string for DB storage.
-
-    Strips timezone info so timestamps stay in the same naive-local format
-    used by existing databases, keeping string comparisons consistent.
-    """
     if dt.tzinfo is not None:
-        dt = dt.astimezone().replace(tzinfo=None)
+        dt = dt.replace(tzinfo=None)
     return dt.replace(microsecond=0).isoformat()
 
 

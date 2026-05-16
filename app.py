@@ -1,14 +1,10 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()  # loads .env if present; no-op otherwise
-
-from common import app, init_db
+from common import app, init_db, get_db
 import alerts  # noqa: F401
 import communication  # noqa: F401
 import websites  # noqa: F401
 from websites import start_scheduler
-from common import get_db
 
 
 init_db()
@@ -16,18 +12,13 @@ if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
     start_scheduler()
 
 
-@app.route('/health')
+@app.route("/health")
 def health():
-    """Simple health check endpoint.
-
-    Returns 200 OK if the app can connect to the SQLite DB.
-    """
     try:
-        db = get_db()
-        db.execute('SELECT 1').fetchone()
-        return 'OK', 200
+        get_db().execute("SELECT 1").fetchone()
+        return "OK", 200
     except Exception:
-        return 'Unhealthy', 500
+        return "Unhealthy", 500
 
 
 if __name__ == "__main__":

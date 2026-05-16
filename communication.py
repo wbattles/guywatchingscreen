@@ -6,7 +6,7 @@ from email.message import EmailMessage
 
 from flask import flash, redirect, render_template, request, url_for
 
-from common import app, get_db, looks_like_email
+from common import app, get_db, iso, looks_like_email, now_utc
 
 
 def validate_email_recipient_form(form):
@@ -28,7 +28,7 @@ def get_smtp_password():
     secret_path = Path("/run/secrets/smtp_password")
     if secret_path.is_file():
         try:
-            return secret_path.read_text().strip()
+            return secret_path.read_text().rstrip("\r\n")
         except Exception:
             app.logger.exception("Failed to read SMTP password from secret file: %s", secret_path)
             return ""
@@ -98,10 +98,18 @@ def send_email_alert(db, check, message, alert_rule_id=None):
     email["To"] = ", ".join(recipient_emails)
     email.set_content(message)
 
-    with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"], timeout=20) as server:
-        if settings["use_tls"]:
+    smtp_password = get_smtp_password()
+    # Port 465 uses implicit TLS (SMTP_SSL); all other ports use STARTTLS.
+    if settings["smtp_port"] == 465:
+        context_cls = smtplib.SMTP_SSL
+        use_starttls = False
+    else:
+        context_cls = smtplib.SMTP
+        use_starttls = bool(settings["use_tls"])
+
+    with context_cls(settings["smtp_host"], settings["smtp_port"], timeout=20) as server:
+        if use_starttls:
             server.starttls()
-        smtp_password = get_smtp_password()
         if settings["smtp_user"] and smtp_password:
             server.login(settings["smtp_user"], smtp_password)
         server.send_message(email)
@@ -123,8 +131,8 @@ def create_email_recipient():
         try:
             data = validate_email_recipient_form(request.form)
             db.execute(
-                "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, datetime('now'))",
-                (data["email"],),
+                "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, ?)",
+                (data["email"], iso(now_utc())),
             )
             db.commit()
             flash("Email added.", "success")

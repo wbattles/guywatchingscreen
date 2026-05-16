@@ -145,19 +145,21 @@ def run_pending_checks():
     ).fetchall()
     db.close()
 
-    # Run checks in parallel so slow URLs don't block each other.
     if checks:
         with ThreadPoolExecutor(max_workers=10) as pool:
             futures = {pool.submit(run_check, check["id"]): check["id"] for check in checks}
             for future in as_completed(futures):
+                check_id = futures[future]
                 try:
                     future.result()
                 except Exception:
-                    pass  # individual check errors are already handled inside run_check
+                    app.logger.exception("Unexpected error while running check %s", check_id)
 
-    prune_db = open_db()
-    prune_old_results(prune_db)
-    prune_db.close()
+
+def run_prune():
+    db = open_db()
+    prune_old_results(db)
+    db.close()
 
 
 def start_scheduler():
@@ -170,6 +172,13 @@ def start_scheduler():
             replace_existing=True,
             max_instances=2,
             coalesce=True,
+        )
+        SCHEDULER.add_job(
+            run_prune,
+            "interval",
+            hours=1,
+            id="prune-results",
+            replace_existing=True,
         )
         SCHEDULER.start()
 

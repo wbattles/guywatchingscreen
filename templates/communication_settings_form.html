@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+
+{% block content %}
+  <section class="panel form-panel">
+    <h2>Edit email setup</h2>
+
+    <form method="post" class="check-form">
+      <div class="grid two-col">
+        <label>
+          <span>Sender email</span>
+          <input type="email" name="sender_email" value="{{ request.form.get('sender_email', email_settings.sender_email) }}">
+        </label>
+
+        <label>
+          <span>SMTP host</span>
+          <input type="text" name="smtp_host" value="{{ request.form.get('smtp_host', email_settings.smtp_host) }}">
+        </label>
+      </div>
+
+
+        <label>
+          <span>SMTP user</span>
+          <input type="text" name="smtp_user" value="{{ request.form.get('smtp_user', email_settings.smtp_user) }}">
+        </label>
+      </div>
+
+
+
+      <label class="checkbox-row">
+        <input type="checkbox" name="use_tls" {% if request.form.get('use_tls', 'on' if email_settings.use_tls else '') == 'on' %}checked{% endif %}>
+        <span>Use TLS</span>
+      </label>
+
+      <div class="form-actions">
+        <button type="button" onclick="window.location='{{ url_for('communication_screen') }}'">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    </form>
+  </section>
+{% endblock %}

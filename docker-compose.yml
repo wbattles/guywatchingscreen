@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  monitor:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=5000
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_USE_TLS=${SMTP_USE_TLS}
+    secrets:
+      - smtp_password
+    # Optional: persist the SQLite DB outside the container
+    # volumes:
+    #   - ./monitor.db:/app/monitor.db
+
+secrets:
+  smtp_password:
+    file: ./secrets/smtp_password.txt

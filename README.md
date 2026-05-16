@@ -35,10 +35,15 @@ Open `http://127.0.0.1:5000`
 
 ## Communication
 
-- email settings live on the **Communication** page
-- put in the alert email address there
-- put in the SMTP sender settings there too
-- no startup environment variables are needed for email
+- Email configuration is read from environment variables or Docker secrets. The **Communication** page now only shows the current settings and the list of recipient emails.
+- Set the following environment variables (or provide Docker secrets) before starting the app:
+  - `SENDER_EMAIL` – address used in the **From** field
+  - `SMTP_HOST` – SMTP server hostname
+  - `SMTP_PORT` – SMTP server port (default `587`)
+  - `SMTP_USER` – optional username for authentication
+  - `SMTP_USE_TLS` – `1` to enable TLS (default) or `0` to disable
+  - `SMTP_PASSWORD` – password for the SMTP server (can be provided via a Docker secret named `smtp_password`)
+- Recipients are still managed through the UI on the **Communication** page.
 
 ## Blackout periods
 
@@ -55,3 +60,14 @@ Use one time range per line:
 - redirects are treated as failures
 - checks run in the background every 30 seconds and only fire when due
 - old check results are pruned automatically
+
+## Docker
+
+Build and run with Docker Compose:
+
+```bash
+# Build the image and start the container
+docker compose up --build
+```
+
+You can provide the required environment variables via a `.env` file or directly in the `docker-compose.yml`. The SMTP password can be supplied as a Docker secret (`secrets/smtp_password.txt`).

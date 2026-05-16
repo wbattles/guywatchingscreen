@@ -1,4 +1,6 @@
 import smtplib
+import os
+from pathlib import Path
 from email.message import EmailMessage
 
 from flask import flash, redirect, render_template, request, url_for
@@ -7,72 +9,136 @@ from common import app, get_db, looks_like_email, parse_int_field
 
 
 def validate_email_settings_form(form):
-    recipient_email = form.get("recipient_email", "").strip()
+    # Password is no longer stored in the DB; it is read from an environment variable
+    # or Docker secret at runtime. The form therefore does not contain a password field.
     sender_email = form.get("sender_email", "").strip()
     smtp_host = form.get("smtp_host", "").strip()
     smtp_port = parse_int_field(form, "smtp_port", 587, "SMTP port")
     smtp_user = form.get("smtp_user", "").strip()
-    smtp_password = form.get("smtp_password", "")
     use_tls = 1 if form.get("use_tls") == "on" else 0
 
-    has_any_email_setting = any([recipient_email, sender_email, smtp_host, smtp_user, smtp_password])
+    has_any_email_setting = any([sender_email, smtp_host, smtp_user])
 
-    if recipient_email and not looks_like_email(recipient_email):
-        raise ValueError("Recipient email must be a valid email address.")
     if sender_email and not looks_like_email(sender_email):
         raise ValueError("Sender email must be a valid email address.")
     if smtp_port < 1 or smtp_port > 65535:
         raise ValueError("SMTP port must be between 1 and 65535.")
     if has_any_email_setting:
-        if not recipient_email:
-            raise ValueError("Recipient email is required for email alerts.")
         if not sender_email:
             raise ValueError("Sender email is required for email alerts.")
         if not smtp_host:
             raise ValueError("SMTP host is required for email alerts.")
 
     return {
-        "recipient_email": recipient_email,
         "sender_email": sender_email,
         "smtp_host": smtp_host,
         "smtp_port": smtp_port,
         "smtp_user": smtp_user,
-        "smtp_password": smtp_password,
+
         "use_tls": use_tls,
     }
 
 
+def validate_email_recipient_form(form):
+    email = form.get("email", "").strip()
+    if not email:
+        raise ValueError("Email is required.")
+    if not looks_like_email(email):
+        raise ValueError("Email must be a valid email address.")
+    return {"email": email}
+
+
+def get_smtp_password():
+    """Return the SMTP password.
+
+    The password is read from a Docker secret file at ``/run/secrets/smtp_password``
+    if it exists, otherwise from the ``SMTP_PASSWORD`` environment variable.
+    Returns an empty string if neither is set.
+    """
+    secret_path = Path("/run/secrets/smtp_password")
+    if secret_path.is_file():
+        try:
+            return secret_path.read_text().strip()
+        except Exception:
+            return ""
+    return os.getenv("SMTP_PASSWORD", "")
+
+
 def fetch_email_settings(db):
-    settings = db.execute("SELECT * FROM communication_email_settings WHERE id = 1").fetchone()
-    if settings is None:
-        return {
-            "recipient_email": "",
-            "sender_email": "",
-            "smtp_host": "",
-            "smtp_port": 587,
-            "smtp_user": "",
-            "smtp_password": "",
-            "use_tls": 1,
-        }
-    return settings
+    # Deprecated: settings are now read from environment variables / Docker secrets.
+    # This function remains for backward compatibility but returns empty defaults.
+    return {
+        "sender_email": "",
+        "smtp_host": "",
+        "smtp_port": 587,
+        "smtp_user": "",
+        "use_tls": 1,
+    }
+
+def get_env_email_settings():
+    """Read email configuration from environment variables or Docker secrets.
+
+    Expected environment variables:
+        SENDER_EMAIL   – From address
+        SMTP_HOST      – Hostname of SMTP server
+        SMTP_PORT      – Port (defaults to 587)
+        SMTP_USER      – Username (optional)
+        SMTP_USE_TLS   – "1" or "0" (defaults to 1)
+        SMTP_PASSWORD  – Password (read from env or secret file via get_smtp_password())
+    """
+    return {
+        "sender_email": os.getenv("SENDER_EMAIL", ""),
+        "smtp_host": os.getenv("SMTP_HOST", ""),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "smtp_user": os.getenv("SMTP_USER", ""),
+        "use_tls": int(os.getenv("SMTP_USE_TLS", "1")),
+    }
 
 
-def send_email_alert(db, check, message):
-    settings = fetch_email_settings(db)
-    if not settings["smtp_host"] or not settings["recipient_email"] or not settings["sender_email"]:
+
+def fetch_email_recipients(db):
+    return db.execute(
+        "SELECT * FROM communication_email_recipients ORDER BY email COLLATE NOCASE ASC"
+    ).fetchall()
+
+
+def fetch_email_recipients_for_alert_rule(db, alert_rule_id):
+    return db.execute(
+        """
+        SELECT r.*
+        FROM communication_email_recipients r
+        JOIN alert_rule_email_recipients arer ON arer.recipient_id = r.id
+        WHERE arer.alert_rule_id = ?
+        ORDER BY r.email COLLATE NOCASE ASC
+        """,
+        (alert_rule_id,),
+    ).fetchall()
+
+
+def send_email_alert(db, check, message, alert_rule_id=None):
+    # Email configuration is now sourced from environment variables / Docker secrets.
+    settings = get_env_email_settings()
+    if alert_rule_id is None:
+        recipients = []
+    else:
+        recipients = fetch_email_recipients_for_alert_rule(db, alert_rule_id)
+    recipient_emails = [row["email"] for row in recipients]
+    # Require host, at least one recipient, and a sender address.
+    if not settings["smtp_host"] or not recipient_emails or not settings["sender_email"]:
         return "dashboard"
 
     email = EmailMessage()
     email["Subject"] = f"Monitor alert: {check['name']}"
     email["From"] = settings["sender_email"]
-    email["To"] = settings["recipient_email"]
+    email["To"] = ", ".join(recipient_emails)
     email.set_content(message)
 
     with smtplib.SMTP(settings["smtp_host"], settings["smtp_port"], timeout=20) as server:
         if settings["use_tls"]:
             server.starttls()
-        if settings["smtp_user"] and settings["smtp_password"]:
-            server.login(settings["smtp_user"], settings["smtp_password"])
+        smtp_password = get_smtp_password()
+        if settings["smtp_user"] and smtp_password:
+            server.login(settings["smtp_user"], smtp_password)
         server.send_message(email)
 
     return "email"
@@ -80,11 +146,18 @@ def send_email_alert(db, check, message):
 
 def communication_data():
     db = get_db()
-    return fetch_email_settings(db)
+    return fetch_email_settings(db), fetch_email_recipients(db)
 
 
-@app.route("/communication", methods=["GET", "POST"])
+@app.route("/communication")
 def communication_screen():
+    email_settings = get_env_email_settings()
+    email_recipients = fetch_email_recipients(get_db())
+    return render_template("communication.html", email_settings=email_settings, email_recipients=email_recipients)
+
+
+@app.route("/communication/email-settings", methods=["GET", "POST"])
+def edit_email_settings():
     db = get_db()
     if request.method == "POST":
         try:
@@ -92,25 +165,21 @@ def communication_screen():
             db.execute(
                 """
                 INSERT INTO communication_email_settings (
-                    id, recipient_email, sender_email, smtp_host, smtp_port,
-                    smtp_user, smtp_password, use_tls
-                ) VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+                    id, sender_email, smtp_host, smtp_port,
+                    smtp_user, use_tls
+                ) VALUES (1, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
-                    recipient_email = excluded.recipient_email,
                     sender_email = excluded.sender_email,
                     smtp_host = excluded.smtp_host,
                     smtp_port = excluded.smtp_port,
                     smtp_user = excluded.smtp_user,
-                    smtp_password = excluded.smtp_password,
                     use_tls = excluded.use_tls
                 """,
                 (
-                    data["recipient_email"],
                     data["sender_email"],
                     data["smtp_host"],
                     data["smtp_port"],
                     data["smtp_user"],
-                    data["smtp_password"],
                     data["use_tls"],
                 ),
             )
@@ -120,5 +189,63 @@ def communication_screen():
         except ValueError as exc:
             flash(str(exc), "error")
 
-    email_settings = communication_data()
-    return render_template("communication.html", email_settings=email_settings)
+    email_settings = fetch_email_settings(db)
+    return render_template("communication_settings_form.html", email_settings=email_settings)
+
+
+@app.route("/communication/emails/new", methods=["GET", "POST"])
+def create_email_recipient():
+    db = get_db()
+    if request.method == "POST":
+        try:
+            data = validate_email_recipient_form(request.form)
+            db.execute(
+                "INSERT INTO communication_email_recipients (email, created_at) VALUES (?, datetime('now'))",
+                (data["email"],),
+            )
+            db.commit()
+            flash("Email added.", "success")
+            return redirect(url_for("communication_screen"))
+        except ValueError as exc:
+            flash(str(exc), "error")
+        except Exception:
+            flash("That email already exists.", "error")
+    return render_template("communication_email_form.html", recipient=None)
+
+
+@app.route("/communication/emails/<int:recipient_id>/edit", methods=["GET", "POST"])
+def edit_email_recipient(recipient_id):
+    db = get_db()
+    recipient = db.execute(
+        "SELECT * FROM communication_email_recipients WHERE id = ?",
+        (recipient_id,),
+    ).fetchone()
+    if recipient is None:
+        flash("Email not found.", "error")
+        return redirect(url_for("communication_screen"))
+
+    if request.method == "POST":
+        try:
+            data = validate_email_recipient_form(request.form)
+            db.execute(
+                "UPDATE communication_email_recipients SET email = ? WHERE id = ?",
+                (data["email"], recipient_id),
+            )
+            db.commit()
+            flash("Email updated.", "success")
+            return redirect(url_for("communication_screen"))
+        except ValueError as exc:
+            flash(str(exc), "error")
+        except Exception:
+            flash("That email already exists.", "error")
+
+    return render_template("communication_email_form.html", recipient=recipient)
+
+
+@app.post("/communication/emails/<int:recipient_id>/delete")
+def delete_email_recipient(recipient_id):
+    db = get_db()
+    db.execute("DELETE FROM communication_email_recipients WHERE id = ?", (recipient_id,))
+    db.commit()
+    flash("Email deleted.", "success")
+    return redirect(url_for("communication_screen"))

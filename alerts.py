@@ -3,7 +3,7 @@ from datetime import timedelta
 from flask import flash, redirect, render_template, request, url_for
 
 from common import app, get_db, iso, now_local, parse_int_field
-from communication import send_email_alert
+from communication import fetch_email_recipients, send_email_alert
 
 
 def validate_alert_form(form):
@@ -11,6 +11,7 @@ def validate_alert_form(form):
     alert_failures = parse_int_field(form, "alert_failures", 3, "Alert failures")
     alert_window_minutes = parse_int_field(form, "alert_window_minutes", 15, "Alert window")
     check_ids = sorted({int(value) for value in form.getlist("check_ids") if value.isdigit()})
+    recipient_ids = sorted({int(value) for value in form.getlist("recipient_ids") if value.isdigit()})
 
     if not name:
         raise ValueError("Name is required.")
@@ -26,13 +27,14 @@ def validate_alert_form(form):
         "alert_failures": alert_failures,
         "alert_window_minutes": alert_window_minutes,
         "check_ids": check_ids,
+        "recipient_ids": recipient_ids,
     }
 
 
 def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None):
     delivered_via = "dashboard"
     try:
-        delivered_via = send_email_alert(db, check, message)
+        delivered_via = send_email_alert(db, check, message, alert_rule_id)
     except Exception as exc:
         message = f"{message} (email send failed: {exc})"
 
@@ -96,10 +98,14 @@ def alert_settings_data():
                ar.alert_failures,
                ar.alert_window_minutes,
                COUNT(arc.check_id) AS monitor_count,
-               GROUP_CONCAT(c.name, ', ') AS monitor_names
+               GROUP_CONCAT(c.name, ', ') AS monitor_names,
+               COUNT(DISTINCT arer.recipient_id) AS communication_count,
+               GROUP_CONCAT(DISTINCT r.email) AS communication_names
         FROM alert_rules ar
         LEFT JOIN alert_rule_checks arc ON arc.alert_rule_id = ar.id
         LEFT JOIN checks c ON c.id = arc.check_id
+        LEFT JOIN alert_rule_email_recipients arer ON arer.alert_rule_id = ar.id
+        LEFT JOIN communication_email_recipients r ON r.id = arer.recipient_id
         GROUP BY ar.id, ar.name, ar.alert_failures, ar.alert_window_minutes
         ORDER BY ar.name COLLATE NOCASE ASC
         """
@@ -128,6 +134,14 @@ def fetch_alert(alert_id):
 def alert_rule_check_ids(db, alert_rule_id):
     rows = db.execute("SELECT check_id FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,)).fetchall()
     return [row["check_id"] for row in rows]
+
+
+def alert_rule_recipient_ids(db, alert_rule_id):
+    rows = db.execute(
+        "SELECT recipient_id FROM alert_rule_email_recipients WHERE alert_rule_id = ?",
+        (alert_rule_id,),
+    ).fetchall()
+    return [row["recipient_id"] for row in rows]
 
 
 @app.route("/alerts")
@@ -168,9 +182,12 @@ def delete_alert(alert_id):
 def create_alert_rule():
     db = get_db()
     checks = db.execute("SELECT id, name FROM checks ORDER BY name COLLATE NOCASE ASC").fetchall()
+    recipients = fetch_email_recipients(db)
     selected_check_ids = []
+    selected_recipient_ids = []
     if request.method == "POST":
         selected_check_ids = [int(value) for value in request.form.getlist("check_ids") if value.isdigit()]
+        selected_recipient_ids = [int(value) for value in request.form.getlist("recipient_ids") if value.isdigit()]
         try:
             data = validate_alert_form(request.form)
             db.execute(
@@ -183,18 +200,31 @@ def create_alert_rule():
             alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
             for check_id in data["check_ids"]:
                 db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+            for recipient_id in data["recipient_ids"]:
+                db.execute(
+                    "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
+                    (alert_rule_id, recipient_id),
+                )
             db.commit()
             flash("Alert created.", "success")
             return redirect(url_for("alerts_screen"))
         except ValueError as exc:
             flash(str(exc), "error")
-    return render_template("alert_form.html", checks=checks, alert_rule=None, selected_check_ids=selected_check_ids)
+    return render_template(
+        "alert_form.html",
+        checks=checks,
+        recipients=recipients,
+        alert_rule=None,
+        selected_check_ids=selected_check_ids,
+        selected_recipient_ids=selected_recipient_ids,
+    )
 
 
 @app.route("/alerts/<int:alert_rule_id>/edit", methods=["GET", "POST"])
 def edit_alert_rule(alert_rule_id):
     db = get_db()
     checks = db.execute("SELECT id, name FROM checks ORDER BY name COLLATE NOCASE ASC").fetchall()
+    recipients = fetch_email_recipients(db)
     alert_rule = fetch_alert_rule(alert_rule_id)
     if alert_rule is None:
         flash("Alert not found.", "error")
@@ -202,6 +232,7 @@ def edit_alert_rule(alert_rule_id):
 
     if request.method == "POST":
         selected_check_ids = [int(value) for value in request.form.getlist("check_ids") if value.isdigit()]
+        selected_recipient_ids = [int(value) for value in request.form.getlist("recipient_ids") if value.isdigit()]
         try:
             data = validate_alert_form(request.form)
             db.execute(
@@ -215,6 +246,12 @@ def edit_alert_rule(alert_rule_id):
             db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
             for check_id in data["check_ids"]:
                 db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+            db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
+            for recipient_id in data["recipient_ids"]:
+                db.execute(
+                    "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
+                    (alert_rule_id, recipient_id),
+                )
             if data["check_ids"]:
                 db.execute(
                     "DELETE FROM alert_rule_states WHERE alert_rule_id = ? AND check_id NOT IN ({})".format(
@@ -229,13 +266,22 @@ def edit_alert_rule(alert_rule_id):
             return redirect(url_for("alerts_screen"))
         except ValueError as exc:
             flash(str(exc), "error")
-            return render_template("alert_form.html", checks=checks, alert_rule=alert_rule, selected_check_ids=selected_check_ids)
+            return render_template(
+                "alert_form.html",
+                checks=checks,
+                recipients=recipients,
+                alert_rule=alert_rule,
+                selected_check_ids=selected_check_ids,
+                selected_recipient_ids=selected_recipient_ids,
+            )
 
     return render_template(
         "alert_form.html",
         checks=checks,
+        recipients=recipients,
         alert_rule=alert_rule,
         selected_check_ids=alert_rule_check_ids(db, alert_rule_id),
+        selected_recipient_ids=alert_rule_recipient_ids(db, alert_rule_id),
     )
 
 
@@ -248,6 +294,7 @@ def delete_alert_rule(alert_rule_id):
         return redirect(url_for("alerts_screen"))
     db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
+    db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alerts WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rules WHERE id = ?", (alert_rule_id,))
     db.commit()

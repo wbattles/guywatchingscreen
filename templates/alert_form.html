@@ -2,7 +2,7 @@
 
 {% block content %}
   <section class="panel form-panel">
-    <h2>{% if alert_rule %}Edit alert{% else %}Add alert{% endif %}</h2>
+    <h2>{% if alert_rule %}Edit{% else %}Add alert{% endif %}</h2>
 
     {% if checks %}
       <form method="post" class="check-form">
@@ -21,6 +21,22 @@
               </label>
             {% endfor %}
           </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Communication</legend>
+          {% if recipients %}
+            <div class="checkbox-list">
+              {% for recipient in recipients %}
+                <label class="checkbox-row">
+                  <input type="checkbox" name="recipient_ids" value="{{ recipient.id }}" {% if recipient.id in selected_recipient_ids %}checked{% endif %}>
+                  <span>{{ recipient.email }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <p>No communication assigned.</p>
+          {% endif %}
         </fieldset>
 
         <div class="grid two-col">

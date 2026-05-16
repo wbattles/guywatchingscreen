@@ -107,13 +107,25 @@ def init_db():
 
             CREATE TABLE IF NOT EXISTS communication_email_settings (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
-                recipient_email TEXT NOT NULL DEFAULT '',
                 sender_email TEXT NOT NULL DEFAULT '',
                 smtp_host TEXT NOT NULL DEFAULT '',
                 smtp_port INTEGER NOT NULL DEFAULT 587,
                 smtp_user TEXT NOT NULL DEFAULT '',
-                smtp_password TEXT NOT NULL DEFAULT '',
                 use_tls INTEGER NOT NULL DEFAULT 1
+            );
+
+            CREATE TABLE IF NOT EXISTS communication_email_recipients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS alert_rule_email_recipients (
+                alert_rule_id INTEGER NOT NULL,
+                recipient_id INTEGER NOT NULL,
+                PRIMARY KEY (alert_rule_id, recipient_id),
+                FOREIGN KEY (alert_rule_id) REFERENCES alert_rules (id),
+                FOREIGN KEY (recipient_id) REFERENCES communication_email_recipients (id)
             );
 
             CREATE INDEX IF NOT EXISTS idx_check_results_check_checked

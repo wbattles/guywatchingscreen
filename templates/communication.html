@@ -1,54 +1,62 @@
 {% extends "layout.html" %}
 
 {% block content %}
-  <section class="panel form-panel">
-    <h2>Communication</h2>
+  <div class="communication-grid">
+    <section class="panel form-panel communication-left">
+      <div class="section-header">
+        <h2>Email setup</h2>
 
-    <form method="post" class="check-form">
-      <label>
-        <span>Alert email</span>
-        <input type="email" name="recipient_email" value="{{ request.form.get('recipient_email', email_settings.recipient_email) }}" placeholder="you@example.com">
-      </label>
-
-      <div class="grid two-col">
-        <label>
-          <span>Sender email</span>
-          <input type="email" name="sender_email" value="{{ request.form.get('sender_email', email_settings.sender_email) }}" placeholder="alerts@example.com">
-        </label>
-
-        <label>
-          <span>SMTP host</span>
-          <input type="text" name="smtp_host" value="{{ request.form.get('smtp_host', email_settings.smtp_host) }}" placeholder="smtp.example.com">
-        </label>
       </div>
 
-      <div class="grid two-col">
-        <label>
-          <span>SMTP port</span>
-          <input type="number" min="1" max="65535" name="smtp_port" value="{{ request.form.get('smtp_port', email_settings.smtp_port) }}" required>
-        </label>
+      {% if email_settings.sender_email or email_settings.smtp_host %}
+        <p><strong>From:</strong> {{ email_settings.sender_email or 'Not set' }}</p>
+        <p><strong>SMTP host:</strong> {{ email_settings.smtp_host or 'Not set' }}</p>
+        <p><strong>SMTP port:</strong> {{ email_settings.smtp_port }}</p>
+        <p><strong>TLS:</strong> {% if email_settings.use_tls %}On{% else %}Off{% endif %}</p>
+      {% else %}
+        <p>No email setup yet.</p>
+      {% endif %}
+    </section>
 
-        <label>
-          <span>SMTP user</span>
-          <input type="text" name="smtp_user" value="{{ request.form.get('smtp_user', email_settings.smtp_user) }}">
-        </label>
+    <section class="panel communication-right">
+      <div class="section-header">
+        <h2>Email communication</h2>
+        <form method="get" action="{{ url_for('create_email_recipient') }}">
+          <button type="submit">Add email</button>
+        </form>
       </div>
 
-      <label>
-        <span>SMTP password</span>
-        <input type="password" name="smtp_password" value="{{ request.form.get('smtp_password', email_settings.smtp_password) }}">
-      </label>
-
-      <label class="checkbox-row">
-        <input type="checkbox" name="use_tls" {% if request.form.get('use_tls', 'on' if email_settings.use_tls else '') == 'on' %}checked{% endif %}>
-        <span>Use TLS</span>
-      </label>
-
-      <p class="meta">Slack and text can come here later. Right now this page only sets up email.</p>
-
-      <div class="form-actions">
-        <button type="submit">Save</button>
-      </div>
-    </form>
-  </section>
+      {% if email_recipients %}
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for recipient in email_recipients %}
+                <tr>
+                  <td>{{ recipient.email }}</td>
+                  <td>
+                    <div class="actions actions-right">
+                      <form method="get" action="{{ url_for('edit_email_recipient', recipient_id=recipient.id) }}">
+                        <button type="submit">Edit</button>
+                      </form>
+                      <form method="post" action="{{ url_for('delete_email_recipient', recipient_id=recipient.id) }}" onsubmit="return confirm('Delete this email?');">
+                        <button type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>No email communication yet.</p>
+      {% endif %}
+    </section>
+  </div>
 {% endblock %}

@@ -55,7 +55,12 @@ def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None
     try:
         delivered_via = send_email_alert(db, check, message, alert_rule_id)
     except Exception as exc:
-        message = f"{message} (email send failed: {exc})"
+        app.logger.error(
+            "Failed to send alert email for check %s (%s)",
+            check["id"],
+            type(exc).__name__,
+        )
+        message = f"{message} (email delivery failed)"
 
     db.execute(
         """

@@ -61,3 +61,13 @@ One time range per line:
 ## License
 
 MIT
+
+## Releases
+
+Releases are cut automatically from the squash-merged PR title (conventional commits):
+
+- `fix: ...` → patch, `feat: ...` → minor, `feat!: ...` or a `BREAKING CHANGE:` footer → major
+- `docs:`, `chore:`, `ci:`, `test:`, `refactor:`, `build:`, `perf:` → no release
+
+Each release tags `vX.Y.Z`, creates a GitHub release, and pushes `ghcr.io/wbattles/guywatchingscreen:vX.Y.Z` (and `:latest`).
+To release an exact version: `gh workflow run release.yaml --ref main -f version=X.Y.Z`.

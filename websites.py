@@ -55,7 +55,7 @@ def describe_exception(exc, timeout_seconds):
 
 
 def describe_alert(check, alert_rule, failures, reason):
-    """One clear sentence for the dashboard, email and webhook: what is down, why, and which rule fired."""
+    """One clear sentence for the dashboard and webhook: what is down, why, and which rule fired."""
     window = alert_rule["alert_window_minutes"]
     threshold = alert_rule["alert_failures"]
     plural = "failure" if failures == 1 else "failures"

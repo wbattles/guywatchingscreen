@@ -7,21 +7,8 @@ os.environ.setdefault("DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("FLASK_DEBUG", "1")
 os.environ.setdefault("RUN_SCHEDULER", "0")
 
-from common import looks_like_email, parse_blackout_periods, is_in_blackout, iso, now_utc
+from common import parse_blackout_periods, is_in_blackout, iso, now_utc
 from datetime import time
-
-
-class TestLooksLikeEmail(unittest.TestCase):
-    def test_valid(self):
-        self.assertTrue(looks_like_email("user@example.com"))
-        self.assertTrue(looks_like_email("a@b.co"))
-
-    def test_invalid(self):
-        self.assertFalse(looks_like_email("notanemail"))
-        self.assertFalse(looks_like_email("@.x"))
-        self.assertFalse(looks_like_email("x@y."))
-        self.assertFalse(looks_like_email(""))
-        self.assertFalse(looks_like_email(None))
 
 
 class TestParseBlackoutPeriods(unittest.TestCase):
@@ -103,21 +90,10 @@ class TestApiValidation(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
 
-    def test_create_email_rejects_non_object_json(self):
-        response = self.client.post("/api/communication/emails", json=None)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
-
     def test_delete_missing_alert_returns_404(self):
         response = self.client.delete("/api/alerts/999999")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.get_json()["error"], "Alert not found.")
-
-    def test_delete_missing_email_returns_404(self):
-        response = self.client.delete("/api/communication/emails/999999")
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.get_json()["error"], "Email not found.")
-
 
 class TestSchedulerClaims(unittest.TestCase):
     def setUp(self):
@@ -130,11 +106,9 @@ class TestSchedulerClaims(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
-        db.execute("DELETE FROM alert_rule_email_recipients")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
-        db.execute("DELETE FROM communication_email_recipients")
         db.execute("DELETE FROM checks")
         db.commit()
 
@@ -162,7 +136,7 @@ class TestSchedulerClaims(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 1)
 
 
-class TestAlertEmailSanitization(unittest.TestCase):
+class TestAlertDelivery(unittest.TestCase):
     def setUp(self):
         import app
         from common import get_db
@@ -173,41 +147,14 @@ class TestAlertEmailSanitization(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
-        db.execute("DELETE FROM alert_rule_email_recipients")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
-        db.execute("DELETE FROM communication_email_recipients")
         db.execute("DELETE FROM checks")
         db.commit()
 
     def tearDown(self):
         self.ctx.pop()
-
-    def test_create_alert_does_not_store_smtp_exception_text(self):
-        from common import get_db
-        import alerts
-
-        db = get_db()
-        db.execute(
-            """
-            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            ("Example", "https://example.com", 5, 10, "", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
-        )
-        check = db.execute("SELECT * FROM checks").fetchone()
-
-        with self.assertLogs("common", level="ERROR") as logs:
-            with patch("alerts.send_email_alert", side_effect=RuntimeError("SMTP auth failed for secret-password")):
-                alerts.create_alert(db, check, "failure", "Base message")
-
-        alert = db.execute("SELECT message FROM alerts").fetchone()
-        self.assertEqual(alert["message"], "Base message (email delivery failed)")
-        self.assertNotIn("secret-password", alert["message"])
-        self.assertIn("Failed to send alert email for check", logs.output[0])
-        self.assertNotIn("secret-password", logs.output[0])
-
 
     def _insert_check(self, db):
         db.execute(

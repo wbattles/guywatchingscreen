@@ -112,19 +112,9 @@ def init_db():
                 FOREIGN KEY (check_id) REFERENCES checks (id)
             );
 
-            CREATE TABLE IF NOT EXISTS communication_email_recipients (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL UNIQUE,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS alert_rule_email_recipients (
-                alert_rule_id INTEGER NOT NULL,
-                recipient_id INTEGER NOT NULL,
-                PRIMARY KEY (alert_rule_id, recipient_id),
-                FOREIGN KEY (alert_rule_id) REFERENCES alert_rules (id),
-                FOREIGN KEY (recipient_id) REFERENCES communication_email_recipients (id)
-            );
+            -- Email alerts were removed; drop their tables from older databases.
+            DROP TABLE IF EXISTS alert_rule_email_recipients;
+            DROP TABLE IF EXISTS communication_email_recipients;
 
             CREATE INDEX IF NOT EXISTS idx_check_results_check_checked
                 ON check_results (check_id, checked_at);
@@ -166,17 +156,6 @@ def get_json_object(request):
     if not isinstance(data, dict):
         raise ValueError("Request body must be a JSON object.")
     return data
-
-
-def looks_like_email(value):
-    """Basic email sanity check. Requires local@domain.tld structure."""
-    if not value or "@" not in value:
-        return False
-    local, _, domain = value.partition("@")
-    if not local or not domain or "." not in domain:
-        return False
-    parts = domain.split(".")
-    return all(parts) and len(parts[-1]) >= 2
 
 
 def parse_blackout_periods(raw_text):

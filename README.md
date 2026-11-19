@@ -27,25 +27,9 @@ Open http://127.0.0.1:5001
 
 Data persists in `./data/`.
 
-## Email
-
-Set these in `.env` to send email alerts:
-
-```env
-SECRET_KEY=change-me
-SENDER_EMAIL=alerts@example.com
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=alerts@example.com
-SMTP_USE_TLS=1
-SMTP_PASSWORD=change-me
-```
-
-Then add recipients on the comms tab.
-
 ## Webhook
 
-Set `WEBHOOK_URL` to post every alert an alert rule raises to one URL, alongside any email:
+Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert an alert rule raises to Discord, Slack, ntfy or any URL:
 
 ```env
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>

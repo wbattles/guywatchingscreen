@@ -1,3 +1,4 @@
+import hashlib
 import os
 from pathlib import Path
 from urllib.parse import urlparse
@@ -61,9 +62,62 @@ def mask_url(url):
     return f"{parsed.hostname or '?'}/…{tail}"
 
 
-def env_webhook():
+ENV_IMPORT_KEY = "env_webhook_imported"
+
+
+def _url_fingerprint(url):
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def import_env_webhook(db):
+    """Copy WEBHOOK_URL into the webhooks table once, so it can be renamed, edited or deleted
+    on the Comms tab like any other webhook. Rules that sent to WEBHOOK_URL switch to the copy.
+
+    Only a fingerprint of the URL is remembered: deleting the copy doesn't bring it back, but
+    setting WEBHOOK_URL to a different URL imports that one. Returns the new webhook id, or None.
+    """
+    url = get_webhook_url()
+    if not url or not url.startswith(("http://", "https://")):
+        return None
+    fingerprint = _url_fingerprint(url)
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (ENV_IMPORT_KEY,)).fetchone()
+    if row is not None and row["value"] == fingerprint:
+        return None
+
+    fmt = os.getenv("WEBHOOK_FORMAT", "").strip().lower()
+    fmt = fmt if fmt in WEBHOOK_FORMATS else "auto"
+    existing = db.execute("SELECT id FROM webhooks WHERE url = ?", (url,)).fetchone()
+    if existing is not None:
+        webhook_id = existing["id"]
+    else:
+        kind = webhook_kind(url, fmt)
+        name = {"discord": "Discord", "slack": "Slack", "teams": "Teams", "ntfy": "ntfy"}.get(kind, "Webhook")
+        webhook_id = db.execute(
+            "INSERT INTO webhooks (name, url, format, enabled, created_at) VALUES (?, ?, ?, 1, ?)",
+            (name, url, fmt, iso(now_utc())),
+        ).lastrowid
+    for rule in db.execute("SELECT id FROM alert_rules WHERE notify_environment = 1").fetchall():
+        db.execute(
+            "INSERT OR IGNORE INTO alert_rule_webhooks (alert_rule_id, webhook_id) VALUES (?, ?)",
+            (rule["id"], webhook_id),
+        )
+    db.execute("UPDATE alert_rules SET notify_environment = 0")
+    db.execute(
+        "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        (ENV_IMPORT_KEY, fingerprint),
+    )
+    db.commit()
+    app.logger.info("Imported WEBHOOK_URL as webhook %s", webhook_id)
+    return webhook_id
+
+
+def env_webhook(db):
+    """WEBHOOK_URL as a read-only target, only until it has been imported (see import_env_webhook)."""
     url = get_webhook_url()
     if not url:
+        return None
+    row = db.execute("SELECT value FROM app_settings WHERE key = ?", (ENV_IMPORT_KEY,)).fetchone()
+    if row is not None and row["value"] == _url_fingerprint(url):
         return None
     return {"id": None, "name": "Environment (WEBHOOK_URL)", "url": url, "format": "auto", "enabled": 1, "source": "environment"}
 
@@ -71,7 +125,7 @@ def env_webhook():
 def webhook_targets(db, include_disabled=False):
     rows = db.execute("SELECT * FROM webhooks ORDER BY name COLLATE NOCASE ASC, id ASC").fetchall()
     targets = [{**dict(r), "source": "settings"} for r in rows if include_disabled or r["enabled"]]
-    env = env_webhook()
+    env = env_webhook(db)
     if env:
         targets.append(env)
     return targets
@@ -231,7 +285,7 @@ def rule_webhook_targets(db, alert_rule_id, include_disabled=False):
     ).fetchall()
     targets = [{**dict(r), "source": "settings"} for r in rows if include_disabled or r["enabled"]]
     rule = db.execute("SELECT notify_environment FROM alert_rules WHERE id = ?", (alert_rule_id,)).fetchone()
-    env = env_webhook()
+    env = env_webhook(db)
     if env and rule is not None and rule["notify_environment"]:
         targets.append(env)
     return targets
@@ -358,7 +412,7 @@ def api_test_webhook(webhook_id):
 
 @app.route("/api/webhooks/environment/test", methods=["POST"])
 def api_test_env_webhook():
-    target = env_webhook()
+    target = env_webhook(get_db())
     if target is None:
         return jsonify({"error": "WEBHOOK_URL isn't set."}), 404
     return _send_test(target)

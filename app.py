@@ -4,7 +4,7 @@ from pathlib import Path
 
 from flask import Response
 
-from common import app, init_db, get_db
+from common import app, init_db, get_db, open_db
 import alerts  # noqa: F401
 import communication  # noqa: F401
 import websites  # noqa: F401
@@ -27,6 +27,11 @@ def should_start_scheduler():
 
 
 init_db()
+_db = open_db()
+try:
+    communication.import_env_webhook(_db)
+finally:
+    _db.close()
 if should_start_scheduler():
     start_scheduler()
 

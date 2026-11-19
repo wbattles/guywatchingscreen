@@ -41,8 +41,8 @@ All settings come from the environment (or `.env`).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `WEBHOOK_URL` | unset | An extra webhook set outside the app. Most people add webhooks on the Comms tab instead. |
-| `WEBHOOK_FORMAT` | picked from the URL | Force the format for `WEBHOOK_URL`: `discord`, `slack`, `teams`, `ntfy` or `json`. |
+| `WEBHOOK_URL` | unset | A webhook to add to the Comms tab on startup. Most people add webhooks on the Comms tab instead. |
+| `WEBHOOK_FORMAT` | picked from the URL | The format for the imported `WEBHOOK_URL`: `discord`, `slack`, `teams`, `ntfy` or `json`. |
 | `SECRET_KEY` | `dev-secret-key` | Flask secret key. Set a random string in production. |
 | `HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` in a container. |
 | `PORT` | `5000` | Port to listen on. |
@@ -58,7 +58,7 @@ Each alert rule picks which webhooks it sends to under **Send to**, or none for 
 
 Webhook URLs work like passwords, so they're write-only: once saved, the page and API only show a hint like `discord.com/…7tDl`. To change one, paste a new URL when editing; leaving it blank keeps the current one.
 
-You can also set one webhook in the environment, which shows on the Comms tab as read-only:
+You can also set a webhook in the environment. On startup it's added to the Comms tab as a normal webhook (and to any rules that used it), so you can rename, edit or delete it there. It's only imported once; changing `WEBHOOK_URL` to a different URL imports the new one.
 
 ```env
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>

@@ -12,8 +12,6 @@ A small uptime monitor. It checks your URLs on a schedule, shows them on a dashb
 - **Blackout periods** pause a monitor during set hours
 - **Light and dark themes**, plus a JSON API for everything the UI does
 
-> **No login.** The dashboard and API have no authentication, and anyone who can reach them can add, change or delete monitors. Run it on a private network, or put it behind an auth proxy such as Cloudflare Access.
-
 ## Run locally
 
 ```bash

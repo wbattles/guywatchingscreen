@@ -1,4 +1,5 @@
 from datetime import timedelta
+from http import HTTPStatus
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,6 +12,59 @@ from common import EXPECTED_STATUS, app, get_db, get_json_object, iso, is_in_bla
 
 
 SCHEDULER = BackgroundScheduler(daemon=True)
+
+
+def describe_status(response):
+    """Explain a non-200 response in plain words."""
+    code = response.status_code
+    try:
+        phrase = HTTPStatus(code).phrase
+    except ValueError:
+        phrase = ""
+    status = f"HTTP {code} {phrase}".strip()
+    if 300 <= code < 400:
+        location = response.headers.get("Location")
+        where = f" to {location}" if location else ""
+        return f"Redirected{where} ({status}); monitors expect {EXPECTED_STATUS} and don't follow redirects"
+    return f"Got {status}, expected {EXPECTED_STATUS}"
+
+
+def describe_exception(exc, timeout_seconds):
+    """Turn a requests exception into a short, readable reason instead of the raw urllib3 chain."""
+    text = str(exc)
+    if isinstance(exc, requests.exceptions.Timeout):
+        if isinstance(exc, requests.exceptions.ConnectTimeout):
+            return f"Couldn't connect within {timeout_seconds}s (connection timed out)"
+        return f"No response within {timeout_seconds}s (timed out)"
+    if isinstance(exc, requests.exceptions.SSLError):
+        if "CERTIFICATE_VERIFY_FAILED" in text:
+            return "TLS certificate isn't valid (verification failed)"
+        return "TLS/SSL handshake failed"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        lowered = text.lower()
+        if any(s in lowered for s in ("nameresolution", "name or service not known", "nodename nor servname", "failed to resolve", "no address associated")):
+            return "Couldn't find the host (DNS lookup failed)"
+        if "connection refused" in lowered:
+            return "Connection refused (nothing is listening there)"
+        if "remotedisconnected" in lowered or "connection aborted" in lowered or "connection reset" in lowered:
+            return "The server closed the connection without responding"
+        return "Couldn't connect to the server"
+    if isinstance(exc, (requests.exceptions.InvalidURL, requests.exceptions.MissingSchema)):
+        return "The monitor's URL isn't valid"
+    return f"{type(exc).__name__}: {text}"[:300]
+
+
+def describe_alert(check, alert_rule, failures, reason):
+    """One clear sentence for the dashboard, email and webhook: what is down, why, and which rule fired."""
+    window = alert_rule["alert_window_minutes"]
+    threshold = alert_rule["alert_failures"]
+    plural = "failure" if failures == 1 else "failures"
+    rule_plural = "failure" if threshold == 1 else "failures"
+    return (
+        f"{check['name']} is down: {reason}. "
+        f"{failures} {plural} in the last {window} min; alert rule \"{alert_rule['name']}\" "
+        f"fires at {threshold} {rule_plural}."
+    )
 
 
 def _safe_int(data, key, default, label):
@@ -69,12 +123,12 @@ def run_check(check_id):
             response = requests.get(check["url"], timeout=check["timeout_seconds"], allow_redirects=False)
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             success = response.status_code == EXPECTED_STATUS
-            error_message = None if success else f"Expected 200, got {response.status_code}"
+            error_message = None if success else describe_status(response)
         except Exception as exc:
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             success = False
             response = None
-            error_message = str(exc)
+            error_message = describe_exception(exc, check["timeout_seconds"])
 
         status_code = response.status_code if response is not None else None
         checked_at = now_utc()
@@ -106,15 +160,12 @@ def run_check(check_id):
             if threshold_hit:
                 any_active = True
                 if not alert_rule["alert_active"]:
+                    reason = error_message or "the latest check passed, but earlier failures are still in the window"
                     pending_alerts.append({
                         "rule": alert_rule,
                         "failures": failures,
-                        "message": (
-                            f"{check['name']} failed {failures} times in the last "
-                            f"{alert_rule['alert_window_minutes']} minutes for alert {alert_rule['name']}. "
-                            f"Last status: {status_code or 'error'}."
-                        ),
-                        "detail": error_message or f"HTTP {status_code}",
+                        "message": describe_alert(check, alert_rule, failures, reason),
+                        "detail": reason,
                     })
                     set_alert_rule_state(db, alert_rule["id"], check_id, True)
             elif alert_rule["alert_active"]:
@@ -124,7 +175,15 @@ def run_check(check_id):
         db.commit()
 
         for pending in pending_alerts:
-            create_alert(db, check, "failure", pending["message"], pending["rule"]["id"], pending["detail"])
+            create_alert(
+                db, check, "failure", pending["message"], pending["rule"]["id"], pending["detail"],
+                context={
+                    "rule_name": pending["rule"]["name"],
+                    "failures": pending["failures"],
+                    "window_minutes": pending["rule"]["alert_window_minutes"],
+                    "threshold": pending["rule"]["alert_failures"],
+                },
+            )
             db.commit()
     finally:
         db.close()

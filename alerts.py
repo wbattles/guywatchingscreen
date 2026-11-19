@@ -50,7 +50,7 @@ def validate_alert_json(data):
     }
 
 
-def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None):
+def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None, context=None):
     channels = []
     failed = []
     base_message = message
@@ -70,7 +70,7 @@ def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None
     # The webhook only receives alerts raised by an alert rule, like email recipients.
     if alert_rule_id is not None:
         try:
-            if send_webhook_alert(check, base_message, detail):
+            if send_webhook_alert(check, base_message, detail, context):
                 channels.append("webhook")
         except Exception as exc:
             # Log only the exception type: request errors can include the webhook URL and its token.

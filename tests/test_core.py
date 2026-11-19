@@ -227,17 +227,28 @@ class TestAlertEmailSanitization(unittest.TestCase):
         check = self._insert_check(db)
         hook = "https://discord.com/api/webhooks/1/token"
         with patch.dict(os.environ, {"WEBHOOK_URL": hook}), patch("communication.requests.post") as post:
-            alerts.create_alert(db, check, "failure", "Example failed 1 times", alert_rule_id=7, detail="HTTP 500")
+            alerts.create_alert(
+                db, check, "failure", "Example is down", alert_rule_id=7,
+                detail="Got HTTP 500 Internal Server Error, expected 200",
+                context={"rule_name": "prod", "failures": 2, "window_minutes": 15, "threshold": 1},
+            )
 
         post.assert_called_once()
         args, kwargs = post.call_args
         self.assertEqual(args[0], hook)
-        self.assertIn("Example failed 1 times", kwargs["json"]["content"])
-        self.assertIn("HTTP 500", kwargs["json"]["content"])
-        self.assertEqual(kwargs["json"]["allowed_mentions"], {"parse": []})
+        payload = kwargs["json"]
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        embed = payload["embeds"][0]
+        self.assertIn("Example is down", embed["title"])
+        self.assertEqual(embed["description"], "Got HTTP 500 Internal Server Error, expected 200")
+        self.assertEqual(embed["url"], "https://example.com")
+        fields = {f["name"]: f["value"] for f in embed["fields"]}
+        self.assertEqual(fields["Alert rule"], "prod")
+        self.assertEqual(fields["Failures"], "2 failures in 15 min")
+        self.assertTrue(embed["timestamp"].endswith("Z"))
         alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
         self.assertEqual(alert["delivered_via"], "webhook")
-        self.assertEqual(alert["message"], "Example failed 1 times")
+        self.assertEqual(alert["message"], "Example is down")
 
     def test_create_alert_webhook_failure_hides_url(self):
         from common import get_db
@@ -286,6 +297,41 @@ class TestWebhookKind(unittest.TestCase):
         self.assertEqual(webhook_kind("https://hooks.slack.com/services/x"), "slack")
         self.assertEqual(webhook_kind("https://ntfy.sh/topic"), "generic")
         self.assertEqual(webhook_kind("https://discord.com.evil.example/x"), "generic")
+
+
+class TestFailureDescriptions(unittest.TestCase):
+    def _response(self, code, location=None):
+        from unittest.mock import Mock
+        r = Mock()
+        r.status_code = code
+        r.headers = {"Location": location} if location else {}
+        return r
+
+    def test_status(self):
+        from websites import describe_status
+        self.assertEqual(describe_status(self._response(404)), "Got HTTP 404 Not Found, expected 200")
+        self.assertEqual(describe_status(self._response(599)), "Got HTTP 599, expected 200")
+        self.assertIn("Redirected to /docs (HTTP 307 Temporary Redirect)", describe_status(self._response(307, "/docs")))
+
+    def test_exceptions(self):
+        import requests
+        from websites import describe_exception
+        self.assertEqual(describe_exception(requests.exceptions.ReadTimeout("x"), 10), "No response within 10s (timed out)")
+        self.assertIn("connection timed out", describe_exception(requests.exceptions.ConnectTimeout("x"), 5))
+        dns = requests.exceptions.ConnectionError("HTTPSConnectionPool(host='nope.invalid'): NameResolutionError: Failed to resolve")
+        self.assertEqual(describe_exception(dns, 10), "Couldn't find the host (DNS lookup failed)")
+        refused = requests.exceptions.ConnectionError("[Errno 61] Connection refused")
+        self.assertEqual(describe_exception(refused, 10), "Connection refused (nothing is listening there)")
+        cert = requests.exceptions.SSLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        self.assertEqual(describe_exception(cert, 10), "TLS certificate isn't valid (verification failed)")
+
+    def test_alert_sentence(self):
+        from websites import describe_alert
+        rule = {"name": "prod", "alert_window_minutes": 15, "alert_failures": 1}
+        self.assertEqual(
+            describe_alert({"name": "API"}, rule, 1, "Got HTTP 404 Not Found, expected 200"),
+            'API is down: Got HTTP 404 Not Found, expected 200. 1 failure in the last 15 min; alert rule "prod" fires at 1 failure.',
+        )
 
 if __name__ == "__main__":
     unittest.main()

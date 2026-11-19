@@ -131,15 +131,56 @@ def get_webhook_settings():
     return {"configured": bool(url), "kind": webhook_kind(url) if url else None}
 
 
-def webhook_text(check, message, detail=None):
-    lines = [f"Monitor alert: {check['name']}", message]
-    if detail:
-        lines.append(f"Detail: {detail}")
-    lines.append(f"URL: {check['url']}")
+ALERT_COLOR = 0xE5484D  # red; matches the dashboard's "down" colour
+
+
+def alert_title(check):
+    return f"\U0001F534 {check['name']} is down"
+
+
+def rule_summary(context):
+    if not context:
+        return None
+    plural = "failure" if context["failures"] == 1 else "failures"
+    return (
+        f"{context['failures']} {plural} in the last {context['window_minutes']} min "
+        f"(rule \"{context['rule_name']}\" fires at {context['threshold']})"
+    )
+
+
+def webhook_text(check, message, detail=None, context=None):
+    lines = [alert_title(check)]
+    lines.append(detail or message)
+    summary = rule_summary(context)
+    if summary:
+        lines.append(summary)
+    lines.append(check["url"])
     return "\n".join(lines)
 
 
-def send_webhook_alert(check, message, detail=None):
+def discord_payload(check, message, detail=None, context=None):
+    embed = {
+        "title": alert_title(check)[:256],
+        "description": (detail or message)[:4096],
+        "color": ALERT_COLOR,
+        "fields": [{"name": "URL", "value": check["url"][:1024], "inline": False}],
+        "footer": {"text": "guywatchingscreen"},
+        "timestamp": now_utc().replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+    if check["url"].startswith(("http://", "https://")):
+        embed["url"] = check["url"]
+    if context:
+        plural = "failure" if context["failures"] == 1 else "failures"
+        embed["fields"] += [
+            {"name": "Alert rule", "value": str(context["rule_name"])[:1024], "inline": True},
+            {"name": "Failures", "value": f"{context['failures']} {plural} in {context['window_minutes']} min", "inline": True},
+            {"name": "Fires at", "value": f"{context['threshold']} in {context['window_minutes']} min", "inline": True},
+        ]
+    # Never let alert text ping anyone.
+    return {"username": "guywatchingscreen", "allowed_mentions": {"parse": []}, "embeds": [embed]}
+
+
+def send_webhook_alert(check, message, detail=None, context=None):
     """POST the alert to WEBHOOK_URL. Returns True when sent, False when no webhook is set."""
     url = get_webhook_url()
     if not url:
@@ -147,23 +188,21 @@ def send_webhook_alert(check, message, detail=None):
     if not url.startswith(("http://", "https://")):
         raise ValueError("WEBHOOK_URL must start with http:// or https://")
 
-    text = webhook_text(check, message, detail)
     kind = webhook_kind(url)
     if kind == "discord":
-        # Discord caps content at 2000 characters; never let alert text ping anyone.
-        response = requests.post(
-            url,
-            json={"username": "guywatchingscreen", "content": text[:2000], "allowed_mentions": {"parse": []}},
-            timeout=10,
-        )
+        response = requests.post(url, json=discord_payload(check, message, detail, context), timeout=10)
     elif kind == "slack":
-        response = requests.post(url, json={"text": text}, timeout=10)
+        response = requests.post(url, json={"text": webhook_text(check, message, detail, context)}, timeout=10)
     else:
         # Plain text works for ntfy and most generic receivers; ntfy reads the Title header.
         response = requests.post(
             url,
-            data=text.encode("utf-8"),
-            headers={"Content-Type": "text/plain; charset=utf-8", "Title": f"Monitor alert: {check['name']}"},
+            data=webhook_text(check, message, detail, context).encode("utf-8"),
+            headers={
+                "Content-Type": "text/plain; charset=utf-8",
+                "Title": f"{check['name']} is down".encode("ascii", "replace").decode(),
+                "Tags": "red_circle",
+            },
             timeout=10,
         )
     response.raise_for_status()

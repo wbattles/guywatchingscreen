@@ -1,6 +1,8 @@
+import hashlib
 import os
+from pathlib import Path
 
-from flask import send_from_directory
+from flask import Response
 
 from common import app, init_db, get_db
 import alerts  # noqa: F401
@@ -29,9 +31,28 @@ if should_start_scheduler():
     start_scheduler()
 
 
+def _versioned_index():
+    """index.html with a content hash on app.js and style.css.
+
+    Cloudflare tells browsers to cache static files for hours, so without this a deploy
+    serves new HTML with the old JS and CSS. The hash changes whenever either file does.
+    """
+    static = Path(app.static_folder)
+    html = (static / "index.html").read_text()
+    for name in ("app.js", "style.css"):
+        digest = hashlib.sha256((static / name).read_bytes()).hexdigest()[:12]
+        html = html.replace(f'"/static/{name}"', f'"/static/{name}?v={digest}"')
+    return html
+
+
+INDEX_HTML = _versioned_index()
+
+
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    # Always revalidate the page itself, so it never points at stale asset versions.
+    html = _versioned_index() if app.debug else INDEX_HTML
+    return Response(html, mimetype="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.route("/health")

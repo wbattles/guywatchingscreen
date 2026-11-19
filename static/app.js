@@ -571,13 +571,13 @@ async function loadCommunication() {
   }
 }
 
-const WEBHOOK_KINDS = { discord: 'Discord', slack: 'Slack', generic: 'Generic (plain text)' };
+const WEBHOOK_KINDS = { discord: 'Discord', slack: 'Slack-style text', teams: 'Microsoft Teams', ntfy: 'ntfy', json: 'JSON' };
 
 function renderWebhookSetup(webhook) {
   const area = document.getElementById('webhook-setup-area');
   if (!webhook || !webhook.configured) {
     area.innerHTML = `<p class="empty">No webhook set. Set <span class="mono">WEBHOOK_URL</span> in the environment
-      to post every alert to Discord, Slack, ntfy or any URL.</p>`;
+      to post every alert to Discord, Slack, Teams, ntfy or any URL.</p>`;
     return;
   }
   area.innerHTML = `<dl class="kv">

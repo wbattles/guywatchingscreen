@@ -4,11 +4,11 @@
 
 Like a guy watching some screens.
 
-A small uptime monitor. It checks your URLs on a schedule, shows them on a dashboard, and posts alerts to Discord, Slack, ntfy or any webhook when they go down.
+A small uptime monitor. It checks your URLs on a schedule, shows them on a dashboard, and posts alerts to Discord, Slack, Teams, ntfy or any other webhook when they go down.
 
 - **Monitors** check a URL every 1 to 1440 minutes and pass only on HTTP 200
 - **Alert rules** fire when a monitor fails X times within Y minutes
-- **Webhook alerts** post to Discord (as an embed), Slack, ntfy or any URL
+- **Webhook alerts** post to Discord (as an embed), Slack, Teams, ntfy or any URL
 - **Blackout periods** pause a monitor during set hours
 - **Light and dark themes**, plus a JSON API for everything the UI does
 
@@ -42,6 +42,7 @@ All settings come from the environment (or `.env`).
 | Variable | Default | What it does |
 |---|---|---|
 | `WEBHOOK_URL` | unset | Where alerts are posted. See [Webhook alerts](#webhook-alerts). |
+| `WEBHOOK_FORMAT` | picked from the URL | Force a webhook format: `discord`, `slack`, `teams`, `ntfy` or `json`. |
 | `SECRET_KEY` | `dev-secret-key` | Flask secret key. Set a random string in production. |
 | `HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` in a container. |
 | `PORT` | `5000` | Port to listen on. |
@@ -57,11 +58,17 @@ Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert 
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
 ```
 
+The format is picked from the URL:
+
 | Webhook | What gets sent |
 |---|---|
-| Discord (`discord.com/api/webhooks/...`) | A red embed titled "🔴 *monitor* is down" that links to the URL, with the error, the alert rule, the failure count and a timestamp. Mentions are disabled. |
-| Slack (`hooks.slack.com/...`) | The same details as text. |
-| Anything else (ntfy, n8n, Home Assistant, ...) | A plain-text POST with `Title` and `Tags` headers, which ntfy shows as a push notification. |
+| Discord | A red embed titled "🔴 *monitor* is down" that links to the URL, with the error, the alert rule, the failure count and a timestamp. Mentions are disabled. |
+| Slack, Google Chat, classic Teams connectors | `{"text": ...}` with the same details. |
+| Teams Workflows (Power Automate) | An Adaptive Card. |
+| ntfy (`ntfy.sh` or a host starting with `ntfy.`) | A high-priority push with a title, the details, and a tap-through link to the URL. |
+| Anything else (Mattermost, Rocket.Chat, n8n, Home Assistant, Zapier, your own endpoint...) | JSON with `text` and `content` for chat apps, plus `title`, `error`, `monitor`, `rule` and `timestamp` fields for automations. |
+
+To choose the format yourself, for example for a self-hosted ntfy on a custom domain, set `WEBHOOK_FORMAT` to `discord`, `slack`, `teams`, `ntfy` or `json`.
 
 The URL contains a token, so it is never stored in the database or returned by the API. The Comms tab only shows whether a webhook is set and what kind it is. You can also mount it as a file at `/run/secrets/webhook_url` instead of setting the variable.
 

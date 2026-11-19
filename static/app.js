@@ -292,7 +292,7 @@ function renderRecentAlerts(alerts) {
       <span class="dot ${isRecovery ? 'dot-up' : 'dot-down'}"></span>
       <button type="button" class="feed-body" onclick="showAlertDetail(${a.id})">
         <div class="feed-title">${esc(a.check_name)}<span class="feed-time" title="${esc(fullTime(a.created_at))}">${timeAgo(a.created_at)}</span></div>
-        <div class="feed-msg">${esc(a.message)}</div>
+        <div class="feed-msg">${esc(a.detail || a.message)}</div>
       </button>
       <button class="icon-btn" onclick="deleteAlert(${a.id})" title="Delete" aria-label="Delete alert">${ICONS.x}</button>
     </li>`;
@@ -340,10 +340,11 @@ async function showAlertDetail(id) {
       <dl class="detail-grid">
         <dt>URL</dt><dd><a href="${esc(a.check_url)}" target="_blank" rel="noreferrer">${esc(a.check_url)}</a></dd>
         <dt>Time</dt><dd>${esc(fullTime(a.created_at))} <span class="subtle">(${timeAgo(a.created_at)})</span></dd>
-        <dt>Type</dt><dd>${esc(a.alert_type)}</dd>
         ${a.alert_rule_name ? `<dt>Rule</dt><dd>${esc(a.alert_rule_name)}</dd>` : ''}
+        ${a.detail ? `<dt>Error</dt><dd>${esc(a.detail)}</dd>` : ''}
+        <dt>Sent to</dt><dd>${a.delivered_via === 'webhook' ? 'Dashboard and webhook' : 'Dashboard only'}</dd>
       </dl>
-      <pre class="detail">${esc(a.detail || a.message)}</pre>`,
+      <p class="detail-msg">${esc(a.message)}</p>`,
       '<button type="button" onclick="closeModal()">Close</button>'));
   } catch (err) {
     flash(err.message, 'error');

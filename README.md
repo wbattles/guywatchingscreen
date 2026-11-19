@@ -4,6 +4,14 @@
 
 Like a guy watching some screens.
 
+A small uptime monitor. It checks your URLs on a schedule, shows them on a dashboard, and posts alerts to Discord, Slack, ntfy or any webhook when they go down.
+
+- **Monitors** check a URL every 1 to 1440 minutes and pass only on HTTP 200
+- **Alert rules** fire when a monitor fails X times within Y minutes
+- **Webhook alerts** post to Discord (as an embed), Slack, ntfy or any URL
+- **Blackout periods** pause a monitor during set hours
+- **Light and dark themes**, plus a JSON API for everything the UI does
+
 ## Run locally
 
 ```bash
@@ -23,41 +31,93 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open http://127.0.0.1:5001
+Open http://127.0.0.1:5001. Data persists in `./data/`.
 
-Data persists in `./data/`.
+Images are published to `ghcr.io/wbattles/guywatchingscreen` for `linux/amd64` and `linux/arm64`.
 
-## Webhook
+## Configuration
 
-Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert an alert rule raises to Discord, Slack, ntfy or any URL:
+All settings come from the environment (or `.env`).
+
+| Variable | Default | What it does |
+|---|---|---|
+| `WEBHOOK_URL` | unset | Where alerts are posted. See [Webhook alerts](#webhook-alerts). |
+| `SECRET_KEY` | `dev-secret-key` | Flask secret key. Set a random string in production. |
+| `HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` in a container. |
+| `PORT` | `5000` | Port to listen on. |
+| `DATA_DIR` | the app folder | Where the SQLite database (`monitor.db`) lives. |
+| `RUN_SCHEDULER` | on when run with `python app.py` | Set to `0` to serve the UI without running checks. |
+| `FLASK_DEBUG` | off | Flask debug mode. Development only. |
+
+## Webhook alerts
+
+Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert an alert rule raises:
 
 ```env
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
 ```
 
-- Discord and Slack webhook URLs get their native JSON format
-- any other URL (ntfy, n8n, Home Assistant, ...) gets a plain-text POST with a `Title` header
-- the URL can also be mounted as a file at `/run/secrets/webhook_url`
-- the URL is never stored in the database or returned by the API, since it contains a token
+| Webhook | What gets sent |
+|---|---|
+| Discord (`discord.com/api/webhooks/...`) | A red embed titled "🔴 *monitor* is down" that links to the URL, with the error, the alert rule, the failure count and a timestamp. Mentions are disabled. |
+| Slack (`hooks.slack.com/...`) | The same details as text. |
+| Anything else (ntfy, n8n, Home Assistant, ...) | A plain-text POST with `Title` and `Tags` headers, which ntfy shows as a push notification. |
 
-## Alerts
+The URL contains a token, so it is never stored in the database or returned by the API. The Comms tab only shows whether a webhook is set and what kind it is. You can also mount it as a file at `/run/secrets/webhook_url` instead of setting the variable.
 
-- alert rules use `X failures in Y minutes`
-- failures are counted in a rolling time window
-- a monitor stays marked down until the count drops below the rule
+**Discord setup:** in your server, open a channel's settings, then **Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**, and set it as `WEBHOOK_URL`.
+
+## How checks and alerts work
+
+- A check passes only on **HTTP 200**. Redirects aren't followed, so point monitors at the final URL, such as a `/health` endpoint.
+- Failures are written up in plain words, for example `Got HTTP 503 Service Unavailable, expected 200`, `No response within 10s (timed out)`, or `Couldn't find the host (DNS lookup failed)`.
+- An alert rule fires when a monitor has **X failures within the last Y minutes**. It fires once, stays active while the count is at or above X, and resets when the count drops below.
+- Monitor status:
+  - **Up** if the last check passed.
+  - **Down** if it failed and one of its rules is active, or it has no rules.
+  - **Degraded** if it failed but no rule has fired yet.
+- Check results are kept for 7 days.
 
 ## Blackout periods
 
-One time range per line:
+Checks are skipped during blackout periods. Enter one range per line, in the server's local time:
 
 ```text
 23:00-06:00
 12:30-13:00
 ```
 
-## License
+## API
 
-MIT
+Everything the UI does goes through a JSON API.
+
+```bash
+# Add a monitor (only name and url are required)
+curl -X POST http://127.0.0.1:5000/api/checks \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "My API", "url": "https://example.com/health", "frequency_minutes": 5, "timeout_seconds": 10}'
+
+# Alert when this monitor fails once in 15 minutes
+curl -X POST http://127.0.0.1:5000/api/alert-rules \
+  -H 'Content-Type: application/json' \
+  -d '{"name": "prod down", "alert_failures": 1, "alert_window_minutes": 15, "check_ids": [1]}'
+```
+
+| Method and path | What it does |
+|---|---|
+| `GET /api/dashboard` | Every monitor with its status, plus recent alerts |
+| `POST /api/checks` | Add a monitor: `name`, `url`, optional `frequency_minutes` (default 5), `timeout_seconds` (default 10), `blackout_periods` |
+| `GET`, `PUT` or `DELETE /api/checks/<id>` | Read, replace or delete a monitor |
+| `POST /api/checks/<id>/run` | Run a check now |
+| `GET /api/alerts` | List alert rules |
+| `POST /api/alert-rules` | Add a rule: `name`, `alert_failures` (default 3), `alert_window_minutes` (default 15), `check_ids` |
+| `GET`, `PUT` or `DELETE /api/alert-rules/<id>` | Read, replace or delete a rule |
+| `GET` or `DELETE /api/alerts/<id>` | Read or delete one alert |
+| `POST /api/alerts/clear` | Delete all alerts |
+| `GET /api/communication` | Whether a webhook is set, and its kind |
+| `GET /health` | Returns `OK` (for liveness and readiness probes) |
+
+Create endpoints return `{"ok": true}`, and errors return `{"error": "..."}` with a 4xx status.
 
 ## Releases
 
@@ -68,3 +128,7 @@ Releases are cut automatically from the squash-merged PR title (conventional com
 
 Each release tags `vX.Y.Z`, creates a GitHub release, and pushes `ghcr.io/wbattles/guywatchingscreen:vX.Y.Z` (and `:latest`).
 To release an exact version: `gh workflow run release.yaml --ref main -f version=X.Y.Z`.
+
+## License
+
+MIT

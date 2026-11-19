@@ -784,3 +784,5 @@ pre.detail {
   .row-2 { grid-template-columns: minmax(0, 1fr); }
   .rule-list { grid-template-columns: minmax(0, 1fr); }
 }
+
+.detail-msg { margin: 16px 0 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }

@@ -41,8 +41,8 @@ All settings come from the environment (or `.env`).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `WEBHOOK_URL` | unset | Where alerts are posted. See [Webhook alerts](#webhook-alerts). |
-| `WEBHOOK_FORMAT` | picked from the URL | Force a webhook format: `discord`, `slack`, `teams`, `ntfy` or `json`. |
+| `WEBHOOK_URL` | unset | An extra webhook set outside the app. Most people add webhooks on the Comms tab instead. |
+| `WEBHOOK_FORMAT` | picked from the URL | Force the format for `WEBHOOK_URL`: `discord`, `slack`, `teams`, `ntfy` or `json`. |
 | `SECRET_KEY` | `dev-secret-key` | Flask secret key. Set a random string in production. |
 | `HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` in a container. |
 | `PORT` | `5000` | Port to listen on. |
@@ -52,7 +52,11 @@ All settings come from the environment (or `.env`).
 
 ## Webhook alerts
 
-Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert an alert rule raises:
+Alerts always show on the dashboard. To also send them somewhere, open the **Comms** tab and click **Add webhook**: give it a name, paste the webhook URL, and click **Send test**. Every enabled webhook gets every alert an alert rule raises. Each webhook can be edited, switched off or deleted.
+
+Webhook URLs work like passwords, so they're write-only: once saved, the page and API only show a hint like `discord.com/…7tDl`. To change one, paste a new URL when editing; leaving it blank keeps the current one.
+
+You can also set one webhook in the environment, which shows on the Comms tab as read-only:
 
 ```env
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
@@ -68,11 +72,11 @@ The format is picked from the URL:
 | ntfy (`ntfy.sh` or a host starting with `ntfy.`) | A high-priority push with a title, the details, and a tap-through link to the URL. |
 | Anything else (Mattermost, Rocket.Chat, n8n, Home Assistant, Zapier, your own endpoint...) | JSON with `text` and `content` for chat apps, plus `title`, `error`, `monitor`, `rule` and `timestamp` fields for automations. |
 
-To choose the format yourself, for example for a self-hosted ntfy on a custom domain, set `WEBHOOK_FORMAT` to `discord`, `slack`, `teams`, `ntfy` or `json`.
+The format is picked from the URL unless you choose one when adding the webhook, which is useful for something like a self-hosted ntfy on its own domain. For `WEBHOOK_URL`, set `WEBHOOK_FORMAT` to `discord`, `slack`, `teams`, `ntfy` or `json`.
 
-The URL contains a token, so it is never stored in the database or returned by the API. The Comms tab only shows whether a webhook is set and what kind it is. You can also mount it as a file at `/run/secrets/webhook_url` instead of setting the variable.
+`WEBHOOK_URL` can also be mounted as a file at `/run/secrets/webhook_url`.
 
-**Discord setup:** in your server, open a channel's settings, then **Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**, and set it as `WEBHOOK_URL`.
+**Getting a Discord webhook URL:** in your server, open a channel's settings, then **Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**.
 
 ## How checks and alerts work
 
@@ -121,7 +125,10 @@ curl -X POST http://127.0.0.1:5000/api/alert-rules \
 | `GET`, `PUT` or `DELETE /api/alert-rules/<id>` | Read, replace or delete a rule |
 | `GET` or `DELETE /api/alerts/<id>` | Read or delete one alert |
 | `POST /api/alerts/clear` | Delete all alerts |
-| `GET /api/communication` | Whether a webhook is set, and its kind |
+| `GET /api/communication` | Every webhook, with a masked URL hint |
+| `POST /api/webhooks` | Add a webhook: `name`, `url`, optional `format` (default `auto`), `enabled` |
+| `PUT` or `DELETE /api/webhooks/<id>` | Replace or delete a webhook (a blank `url` keeps the current one) |
+| `POST /api/webhooks/<id>/test` | Send a test alert (`environment` for `WEBHOOK_URL`) |
 | `GET /health` | Returns `OK` (for liveness and readiness probes) |
 
 Create endpoints return `{"ok": true}`, and errors return `{"error": "..."}` with a 4xx status.

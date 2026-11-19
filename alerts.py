@@ -4,7 +4,7 @@ from datetime import timedelta
 from flask import jsonify, request
 
 from common import app, get_db, get_json_object, iso, now_utc, parse_int_field
-from communication import send_webhook_alert
+from communication import send_webhook_alerts
 
 
 def _safe_int(data, key, default, label):
@@ -50,19 +50,13 @@ def validate_alert_json(data):
 
 def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None, context=None):
     delivered_via = "dashboard"
-    # The webhook only receives alerts raised by an alert rule.
+    # Webhooks only receive alerts raised by an alert rule.
     if alert_rule_id is not None:
-        try:
-            if send_webhook_alert(check, message, detail, context):
-                delivered_via = "webhook"
-        except Exception as exc:
-            # Log only the exception type: request errors can include the webhook URL and its token.
-            app.logger.error(
-                "Failed to send alert webhook for check %s (%s)",
-                check["id"],
-                type(exc).__name__,
-            )
-            message = f"{message} (webhook delivery failed)"
+        sent, failed = send_webhook_alerts(db, check, message, detail, context)
+        if sent:
+            delivered_via = "webhook"
+        if failed:
+            message = f"{message} (webhook delivery failed: {', '.join(failed)})"
 
     db.execute(
         """

@@ -210,7 +210,7 @@ class TestAlertDelivery(unittest.TestCase):
                 alerts.create_alert(db, check, "failure", "Base message", alert_rule_id=7)
 
         alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
-        self.assertEqual(alert["message"], "Base message (webhook delivery failed)")
+        self.assertEqual(alert["message"], "Base message (webhook delivery failed: Environment (WEBHOOK_URL))")
         self.assertEqual(alert["delivered_via"], "dashboard")
         self.assertNotIn("super-secret-token", logs.output[0])
 
@@ -232,7 +232,10 @@ class TestAlertDelivery(unittest.TestCase):
         hook = "https://discord.com/api/webhooks/1/super-secret-token"
         with patch.dict(os.environ, {"WEBHOOK_URL": hook}):
             resp = self.app.test_client().get("/api/communication")
-        self.assertEqual(resp.get_json()["webhook"], {"configured": True, "kind": "discord"})
+        [hook_info] = resp.get_json()["webhooks"]
+        self.assertEqual(hook_info["kind"], "discord")
+        self.assertEqual(hook_info["source"], "environment")
+        self.assertEqual(hook_info["url_hint"], "discord.com/…oken")
         self.assertNotIn(b"super-secret-token", resp.data)
 
 

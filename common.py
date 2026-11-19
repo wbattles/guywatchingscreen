@@ -112,6 +112,15 @@ def init_db():
                 FOREIGN KEY (check_id) REFERENCES checks (id)
             );
 
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL,
+                format TEXT NOT NULL DEFAULT 'auto',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+
             -- Email alerts were removed; drop their tables from older databases.
             DROP TABLE IF EXISTS alert_rule_email_recipients;
             DROP TABLE IF EXISTS communication_email_recipients;

@@ -7,21 +7,8 @@ os.environ.setdefault("DATA_DIR", tempfile.mkdtemp())
 os.environ.setdefault("FLASK_DEBUG", "1")
 os.environ.setdefault("RUN_SCHEDULER", "0")
 
-from common import looks_like_email, parse_blackout_periods, is_in_blackout, iso, now_utc
+from common import parse_blackout_periods, is_in_blackout, iso, now_utc
 from datetime import time
-
-
-class TestLooksLikeEmail(unittest.TestCase):
-    def test_valid(self):
-        self.assertTrue(looks_like_email("user@example.com"))
-        self.assertTrue(looks_like_email("a@b.co"))
-
-    def test_invalid(self):
-        self.assertFalse(looks_like_email("notanemail"))
-        self.assertFalse(looks_like_email("@.x"))
-        self.assertFalse(looks_like_email("x@y."))
-        self.assertFalse(looks_like_email(""))
-        self.assertFalse(looks_like_email(None))
 
 
 class TestParseBlackoutPeriods(unittest.TestCase):
@@ -103,21 +90,10 @@ class TestApiValidation(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
 
-    def test_create_email_rejects_non_object_json(self):
-        response = self.client.post("/api/communication/emails", json=None)
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.get_json()["error"], "Request body must be a JSON object.")
-
     def test_delete_missing_alert_returns_404(self):
         response = self.client.delete("/api/alerts/999999")
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.get_json()["error"], "Alert not found.")
-
-    def test_delete_missing_email_returns_404(self):
-        response = self.client.delete("/api/communication/emails/999999")
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.get_json()["error"], "Email not found.")
-
 
 class TestSchedulerClaims(unittest.TestCase):
     def setUp(self):
@@ -130,11 +106,9 @@ class TestSchedulerClaims(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
-        db.execute("DELETE FROM alert_rule_email_recipients")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
-        db.execute("DELETE FROM communication_email_recipients")
         db.execute("DELETE FROM checks")
         db.commit()
 
@@ -162,7 +136,7 @@ class TestSchedulerClaims(unittest.TestCase):
         self.assertEqual(mock_run.call_count, 1)
 
 
-class TestAlertEmailSanitization(unittest.TestCase):
+class TestAlertDelivery(unittest.TestCase):
     def setUp(self):
         import app
         from common import get_db
@@ -173,41 +147,14 @@ class TestAlertEmailSanitization(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
-        db.execute("DELETE FROM alert_rule_email_recipients")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
-        db.execute("DELETE FROM communication_email_recipients")
         db.execute("DELETE FROM checks")
         db.commit()
 
     def tearDown(self):
         self.ctx.pop()
-
-    def test_create_alert_does_not_store_smtp_exception_text(self):
-        from common import get_db
-        import alerts
-
-        db = get_db()
-        db.execute(
-            """
-            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            ("Example", "https://example.com", 5, 10, "", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
-        )
-        check = db.execute("SELECT * FROM checks").fetchone()
-
-        with self.assertLogs("common", level="ERROR") as logs:
-            with patch("alerts.send_email_alert", side_effect=RuntimeError("SMTP auth failed for secret-password")):
-                alerts.create_alert(db, check, "failure", "Base message")
-
-        alert = db.execute("SELECT message FROM alerts").fetchone()
-        self.assertEqual(alert["message"], "Base message (email delivery failed)")
-        self.assertNotIn("secret-password", alert["message"])
-        self.assertIn("Failed to send alert email for check", logs.output[0])
-        self.assertNotIn("secret-password", logs.output[0])
-
 
     def _insert_check(self, db):
         db.execute(
@@ -227,17 +174,28 @@ class TestAlertEmailSanitization(unittest.TestCase):
         check = self._insert_check(db)
         hook = "https://discord.com/api/webhooks/1/token"
         with patch.dict(os.environ, {"WEBHOOK_URL": hook}), patch("communication.requests.post") as post:
-            alerts.create_alert(db, check, "failure", "Example failed 1 times", alert_rule_id=7, detail="HTTP 500")
+            alerts.create_alert(
+                db, check, "failure", "Example is down", alert_rule_id=7,
+                detail="Got HTTP 500 Internal Server Error, expected 200",
+                context={"rule_name": "prod", "failures": 2, "window_minutes": 15, "threshold": 1},
+            )
 
         post.assert_called_once()
         args, kwargs = post.call_args
         self.assertEqual(args[0], hook)
-        self.assertIn("Example failed 1 times", kwargs["json"]["content"])
-        self.assertIn("HTTP 500", kwargs["json"]["content"])
-        self.assertEqual(kwargs["json"]["allowed_mentions"], {"parse": []})
+        payload = kwargs["json"]
+        self.assertEqual(payload["allowed_mentions"], {"parse": []})
+        embed = payload["embeds"][0]
+        self.assertIn("Example is down", embed["title"])
+        self.assertEqual(embed["description"], "Got HTTP 500 Internal Server Error, expected 200")
+        self.assertEqual(embed["url"], "https://example.com")
+        fields = {f["name"]: f["value"] for f in embed["fields"]}
+        self.assertEqual(fields["Alert rule"], "prod")
+        self.assertEqual(fields["Failures"], "2 failures in 15 min")
+        self.assertTrue(embed["timestamp"].endswith("Z"))
         alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
         self.assertEqual(alert["delivered_via"], "webhook")
-        self.assertEqual(alert["message"], "Example failed 1 times")
+        self.assertEqual(alert["message"], "Example is down")
 
     def test_create_alert_webhook_failure_hides_url(self):
         from common import get_db
@@ -286,6 +244,41 @@ class TestWebhookKind(unittest.TestCase):
         self.assertEqual(webhook_kind("https://hooks.slack.com/services/x"), "slack")
         self.assertEqual(webhook_kind("https://ntfy.sh/topic"), "generic")
         self.assertEqual(webhook_kind("https://discord.com.evil.example/x"), "generic")
+
+
+class TestFailureDescriptions(unittest.TestCase):
+    def _response(self, code, location=None):
+        from unittest.mock import Mock
+        r = Mock()
+        r.status_code = code
+        r.headers = {"Location": location} if location else {}
+        return r
+
+    def test_status(self):
+        from websites import describe_status
+        self.assertEqual(describe_status(self._response(404)), "Got HTTP 404 Not Found, expected 200")
+        self.assertEqual(describe_status(self._response(599)), "Got HTTP 599, expected 200")
+        self.assertIn("Redirected to /docs (HTTP 307 Temporary Redirect)", describe_status(self._response(307, "/docs")))
+
+    def test_exceptions(self):
+        import requests
+        from websites import describe_exception
+        self.assertEqual(describe_exception(requests.exceptions.ReadTimeout("x"), 10), "No response within 10s (timed out)")
+        self.assertIn("connection timed out", describe_exception(requests.exceptions.ConnectTimeout("x"), 5))
+        dns = requests.exceptions.ConnectionError("HTTPSConnectionPool(host='nope.invalid'): NameResolutionError: Failed to resolve")
+        self.assertEqual(describe_exception(dns, 10), "Couldn't find the host (DNS lookup failed)")
+        refused = requests.exceptions.ConnectionError("[Errno 61] Connection refused")
+        self.assertEqual(describe_exception(refused, 10), "Connection refused (nothing is listening there)")
+        cert = requests.exceptions.SSLError("[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed")
+        self.assertEqual(describe_exception(cert, 10), "TLS certificate isn't valid (verification failed)")
+
+    def test_alert_sentence(self):
+        from websites import describe_alert
+        rule = {"name": "prod", "alert_window_minutes": 15, "alert_failures": 1}
+        self.assertEqual(
+            describe_alert({"name": "API"}, rule, 1, "Got HTTP 404 Not Found, expected 200"),
+            'API is down: Got HTTP 404 Not Found, expected 200. 1 failure in the last 15 min; alert rule "prod" fires at 1 failure.',
+        )
 
 if __name__ == "__main__":
     unittest.main()

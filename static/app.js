@@ -292,7 +292,7 @@ function renderRecentAlerts(alerts) {
       <span class="dot ${isRecovery ? 'dot-up' : 'dot-down'}"></span>
       <button type="button" class="feed-body" onclick="showAlertDetail(${a.id})">
         <div class="feed-title">${esc(a.check_name)}<span class="feed-time" title="${esc(fullTime(a.created_at))}">${timeAgo(a.created_at)}</span></div>
-        <div class="feed-msg">${esc(a.message)}</div>
+        <div class="feed-msg">${esc(a.detail || a.message)}</div>
       </button>
       <button class="icon-btn" onclick="deleteAlert(${a.id})" title="Delete" aria-label="Delete alert">${ICONS.x}</button>
     </li>`;
@@ -340,10 +340,11 @@ async function showAlertDetail(id) {
       <dl class="detail-grid">
         <dt>URL</dt><dd><a href="${esc(a.check_url)}" target="_blank" rel="noreferrer">${esc(a.check_url)}</a></dd>
         <dt>Time</dt><dd>${esc(fullTime(a.created_at))} <span class="subtle">(${timeAgo(a.created_at)})</span></dd>
-        <dt>Type</dt><dd>${esc(a.alert_type)}</dd>
         ${a.alert_rule_name ? `<dt>Rule</dt><dd>${esc(a.alert_rule_name)}</dd>` : ''}
+        ${a.detail ? `<dt>Error</dt><dd>${esc(a.detail)}</dd>` : ''}
+        <dt>Sent to</dt><dd>${a.delivered_via === 'webhook' ? 'Dashboard and webhook' : 'Dashboard only'}</dd>
       </dl>
-      <pre class="detail">${esc(a.detail || a.message)}</pre>`,
+      <p class="detail-msg">${esc(a.message)}</p>`,
       '<button type="button" onclick="closeModal()">Close</button>'));
   } catch (err) {
     flash(err.message, 'error');
@@ -430,8 +431,8 @@ async function deleteCheck(id) {
 
 async function loadAlertSettings() {
   try {
-    const data = await api('/api/alerts');
-    renderAlertSettings(data.alert_settings);
+    const [data, comms] = await Promise.all([api('/api/alerts'), api('/api/communication')]);
+    renderAlertSettings(data.alert_settings, comms.webhook);
   } catch (err) {
     flash(err.message, 'error');
   }
@@ -442,7 +443,10 @@ function chips(csv, emptyText) {
   return '<div class="chips">' + csv.split(',').map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('') + '</div>';
 }
 
-function renderAlertSettings(settings) {
+function renderAlertSettings(settings, webhook) {
+  const notifies = webhook && webhook.configured
+    ? `<div class="chips"><span class="chip">${esc(WEBHOOK_KINDS[webhook.kind] || 'Webhook')}</span></div>`
+    : '<span class="chip-none">Nobody (dashboard only)</span>';
   const area = document.getElementById('alert-settings-area');
   if (!settings.length) {
     area.innerHTML = `<div class="empty-state">
@@ -466,27 +470,21 @@ function renderAlertSettings(settings) {
     </div>
     <div class="rule-meta">
       <div><div class="rule-meta-label">Monitors · ${s.monitor_count}</div>${chips(s.monitor_names, 'No monitors')}</div>
-      <div><div class="rule-meta-label">Notifies · ${s.communication_count}</div>${chips(s.communication_names, 'Nobody (dashboard only)')}</div>
+      <div><div class="rule-meta-label">Notifies</div>${notifies}</div>
     </div>
   </article>`).join('') + '</div>';
 }
 
 async function showAlertRuleForm(id) {
   try {
-    const [dashData, commsData] = await Promise.all([
-      api('/api/dashboard'),
-      api('/api/communication'),
-    ]);
+    const dashData = await api('/api/dashboard');
     const checks = dashData.checks;
-    const recipients = commsData.email_recipients;
 
     let rule = null;
     let selectedCheckIds = [];
-    let selectedRecipientIds = [];
     if (id) {
       rule = await api(`/api/alert-rules/${id}`);
       selectedCheckIds = rule.check_ids || [];
-      selectedRecipientIds = rule.recipient_ids || [];
     }
     const r = rule || {};
 
@@ -499,12 +497,6 @@ async function showAlertRuleForm(id) {
     const checkBoxes = checks.map(c =>
       `<label class="checkbox-row"><input type="checkbox" name="check_ids" value="${c.id}" ${selectedCheckIds.includes(c.id) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`
     ).join('');
-
-    const recipientBoxes = recipients.length
-      ? `<div class="checkbox-list">${recipients.map(rec =>
-          `<label class="checkbox-row"><input type="checkbox" name="recipient_ids" value="${rec.id}" ${selectedRecipientIds.includes(rec.id) ? 'checked' : ''}><span>${esc(rec.email)}</span></label>`
-        ).join('')}</div>`
-      : '<p class="hint">No recipients yet. Add one on the Comms tab.</p>';
 
     openModal(modalShell(rule ? 'Edit rule' : 'Add rule', `
       <form id="alert-rule-form" class="stack" onsubmit="saveAlertRule(event, ${id || 'null'})">
@@ -520,7 +512,7 @@ async function showAlertRuleForm(id) {
           </label>
         </div>
         <fieldset><legend>Monitors</legend><div class="checkbox-list">${checkBoxes}</div></fieldset>
-        <fieldset><legend>Notify</legend>${recipientBoxes}</fieldset>
+        <p class="hint">Alerts show on the dashboard and go to the webhook on the Comms tab.</p>
       </form>`,
       `<button type="button" onclick="closeModal()">Cancel</button>
        <button type="submit" form="alert-rule-form" class="btn-primary">${rule ? 'Save changes' : 'Add rule'}</button>`));
@@ -533,13 +525,11 @@ async function saveAlertRule(e, id) {
   e.preventDefault();
   const f = e.target;
   const checkIds = [...f.querySelectorAll('input[name="check_ids"]:checked')].map(i => parseInt(i.value));
-  const recipientIds = [...f.querySelectorAll('input[name="recipient_ids"]:checked')].map(i => parseInt(i.value));
   const body = {
     name: f.elements.name.value,
     alert_failures: parseInt(f.elements.alert_failures.value),
     alert_window_minutes: parseInt(f.elements.alert_window_minutes.value),
     check_ids: checkIds,
-    recipient_ids: recipientIds,
   };
   try {
     if (id) {
@@ -576,8 +566,6 @@ async function loadCommunication() {
   try {
     const data = await api('/api/communication');
     renderWebhookSetup(data.webhook);
-    renderEmailSetup(data.email_settings);
-    renderEmailRecipients(data.email_recipients);
   } catch (err) {
     flash(err.message, 'error');
   }
@@ -598,86 +586,6 @@ function renderWebhookSetup(webhook) {
     <div class="kv-row"><dt>Sends</dt><dd>Every alert from an alert rule</dd></div>
   </dl>`;
 }
-
-function renderEmailSetup(settings) {
-  const area = document.getElementById('email-setup-area');
-  if (!settings.sender_email && !settings.smtp_host) {
-    area.innerHTML = `<p class="empty">Email isn't configured. Set <span class="mono">SENDER_EMAIL</span> and
-      <span class="mono">SMTP_*</span> in the environment to send alerts.</p>`;
-    return;
-  }
-  area.innerHTML = `<dl class="kv">
-    <div class="kv-row"><dt>From</dt><dd>${esc(settings.sender_email || 'Not set')}</dd></div>
-    <div class="kv-row"><dt>SMTP host</dt><dd>${esc(settings.smtp_host || 'Not set')}</dd></div>
-    <div class="kv-row"><dt>Port</dt><dd>${esc(settings.smtp_port)}</dd></div>
-    <div class="kv-row"><dt>TLS</dt><dd><span class="badge ${settings.use_tls ? 'badge-up' : ''}">${settings.use_tls ? 'On' : 'Off'}</span></dd></div>
-  </dl>`;
-}
-
-function renderEmailRecipients(recipients) {
-  const area = document.getElementById('email-recipients-area');
-  if (!recipients.length) { area.innerHTML = '<p class="empty">No recipients yet.</p>'; return; }
-
-  area.innerHTML = '<ul class="recipient-list">' + recipients.map(r => `<li class="recipient">
-    <span class="avatar" aria-hidden="true">${esc((r.email || '?')[0])}</span>
-    <span class="recipient-email">${esc(r.email)}</span>
-    <div class="monitor-actions">
-      <button class="icon-btn" onclick="showEmailForm(${r.id})" title="Edit" aria-label="Edit ${esc(r.email)}">${ICONS.edit}</button>
-      <button class="icon-btn" onclick="deleteEmail(${r.id})" title="Delete" aria-label="Delete ${esc(r.email)}">${ICONS.trash}</button>
-    </div>
-  </li>`).join('') + '</ul>';
-}
-
-async function showEmailForm(id) {
-  try {
-    let recipient = null;
-    if (id) {
-      const data = await api('/api/communication');
-      recipient = data.email_recipients.find(r => r.id === id);
-    }
-
-    openModal(modalShell(recipient ? 'Edit recipient' : 'Add recipient', `
-      <form id="email-form" class="stack" onsubmit="saveEmail(event, ${id || 'null'})">
-        <label class="field"><span>Email</span>
-          <input name="email" type="email" value="${esc(recipient ? recipient.email : '')}" placeholder="oncall@example.com" required>
-        </label>
-      </form>`,
-      `<button type="button" onclick="closeModal()">Cancel</button>
-       <button type="submit" form="email-form" class="btn-primary">${recipient ? 'Save changes' : 'Add recipient'}</button>`));
-  } catch (err) {
-    flash(err.message, 'error');
-  }
-}
-
-async function saveEmail(e, id) {
-  e.preventDefault();
-  const email = new FormData(e.target).get('email');
-  try {
-    if (id) {
-      await api(`/api/communication/emails/${id}`, jsonOpts('PUT', { email }));
-      flash('Recipient updated.');
-    } else {
-      await api('/api/communication/emails', jsonOpts('POST', { email }));
-      flash('Recipient added.');
-    }
-    closeModal();
-    loadCommunication();
-  } catch (err) {
-    flash(err.message, 'error');
-  }
-}
-
-async function deleteEmail(id) {
-  if (!await showConfirm('This address will stop receiving alerts.')) return;
-  try {
-    await api(`/api/communication/emails/${id}`, { method: 'DELETE' });
-    flash('Recipient deleted.');
-    loadCommunication();
-  } catch (err) {
-    flash(err.message, 'error');
-  }
-}
-
 
 // ========================
 // INIT

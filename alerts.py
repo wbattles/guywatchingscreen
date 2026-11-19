@@ -4,7 +4,7 @@ from datetime import timedelta
 from flask import jsonify, request
 
 from common import app, get_db, get_json_object, iso, now_utc, parse_int_field
-from communication import fetch_email_recipients, send_email_alert, send_webhook_alert
+from communication import send_webhook_alert
 
 
 def _safe_int(data, key, default, label):
@@ -30,7 +30,6 @@ def validate_alert_json(data):
     alert_failures = _safe_int(data, "alert_failures", 3, "Alert failures")
     alert_window_minutes = _safe_int(data, "alert_window_minutes", 15, "Alert window")
     check_ids = _int_list(data.get("check_ids"))
-    recipient_ids = _int_list(data.get("recipient_ids"))
 
     if not name:
         raise ValueError("Name is required.")
@@ -46,32 +45,16 @@ def validate_alert_json(data):
         "alert_failures": alert_failures,
         "alert_window_minutes": alert_window_minutes,
         "check_ids": check_ids,
-        "recipient_ids": recipient_ids,
     }
 
 
-def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None):
-    channels = []
-    failed = []
-    base_message = message
-
-    try:
-        if send_email_alert(db, check, base_message, alert_rule_id) == "email":
-            channels.append("email")
-    except Exception as exc:
-        # Log only the exception type: SMTP errors can echo credentials back.
-        app.logger.error(
-            "Failed to send alert email for check %s (%s)",
-            check["id"],
-            type(exc).__name__,
-        )
-        failed.append("email")
-
-    # The webhook only receives alerts raised by an alert rule, like email recipients.
+def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None, context=None):
+    delivered_via = "dashboard"
+    # The webhook only receives alerts raised by an alert rule.
     if alert_rule_id is not None:
         try:
-            if send_webhook_alert(check, base_message, detail):
-                channels.append("webhook")
+            if send_webhook_alert(check, message, detail, context):
+                delivered_via = "webhook"
         except Exception as exc:
             # Log only the exception type: request errors can include the webhook URL and its token.
             app.logger.error(
@@ -79,11 +62,7 @@ def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None
                 check["id"],
                 type(exc).__name__,
             )
-            failed.append("webhook")
-
-    delivered_via = "+".join(channels) or "dashboard"
-    if failed:
-        message = f"{message} ({' and '.join(failed)} delivery failed)"
+            message = f"{message} (webhook delivery failed)"
 
     db.execute(
         """
@@ -145,14 +124,10 @@ def alert_settings_data():
                ar.alert_failures,
                ar.alert_window_minutes,
                COUNT(DISTINCT arc.check_id) AS monitor_count,
-               GROUP_CONCAT(DISTINCT c.name) AS monitor_names,
-               COUNT(DISTINCT arer.recipient_id) AS communication_count,
-               GROUP_CONCAT(DISTINCT r.email) AS communication_names
+               GROUP_CONCAT(DISTINCT c.name) AS monitor_names
         FROM alert_rules ar
         LEFT JOIN alert_rule_checks arc ON arc.alert_rule_id = ar.id
         LEFT JOIN checks c ON c.id = arc.check_id
-        LEFT JOIN alert_rule_email_recipients arer ON arer.alert_rule_id = ar.id
-        LEFT JOIN communication_email_recipients r ON r.id = arer.recipient_id
         GROUP BY ar.id, ar.name, ar.alert_failures, ar.alert_window_minutes
         ORDER BY ar.name COLLATE NOCASE ASC
         """
@@ -181,14 +156,6 @@ def fetch_alert(alert_id):
 def alert_rule_check_ids(db, alert_rule_id):
     rows = db.execute("SELECT check_id FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,)).fetchall()
     return [row["check_id"] for row in rows]
-
-
-def alert_rule_recipient_ids(db, alert_rule_id):
-    rows = db.execute(
-        "SELECT recipient_id FROM alert_rule_email_recipients WHERE alert_rule_id = ?",
-        (alert_rule_id,),
-    ).fetchall()
-    return [row["recipient_id"] for row in rows]
 
 
 # --- API routes ---
@@ -241,17 +208,12 @@ def api_create_alert_rule():
         alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         for check_id in data["check_ids"]:
             db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
-        for recipient_id in data["recipient_ids"]:
-            db.execute(
-                "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
-                (alert_rule_id, recipient_id),
-            )
         db.commit()
         return jsonify({"ok": True}), 201
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Invalid monitor or recipient selection."}), 400
+        return jsonify({"error": "Invalid monitor selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>")
@@ -263,7 +225,6 @@ def api_get_alert_rule(alert_rule_id):
     return jsonify({
         **dict(rule),
         "check_ids": alert_rule_check_ids(db, alert_rule_id),
-        "recipient_ids": alert_rule_recipient_ids(db, alert_rule_id),
     })
 
 
@@ -285,12 +246,6 @@ def api_update_alert_rule(alert_rule_id):
         db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
         for check_id in data["check_ids"]:
             db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
-        db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
-        for recipient_id in data["recipient_ids"]:
-            db.execute(
-                "INSERT INTO alert_rule_email_recipients (alert_rule_id, recipient_id) VALUES (?, ?)",
-                (alert_rule_id, recipient_id),
-            )
         if data["check_ids"]:
             db.execute(
                 "DELETE FROM alert_rule_states WHERE alert_rule_id = ? AND check_id NOT IN ({})".format(
@@ -305,7 +260,7 @@ def api_update_alert_rule(alert_rule_id):
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Invalid monitor or recipient selection."}), 400
+        return jsonify({"error": "Invalid monitor selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>", methods=["DELETE"])
@@ -316,7 +271,6 @@ def api_delete_alert_rule(alert_rule_id):
         return jsonify({"error": "Alert rule not found."}), 404
     db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
-    db.execute("DELETE FROM alert_rule_email_recipients WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alerts WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rules WHERE id = ?", (alert_rule_id,))
     db.commit()

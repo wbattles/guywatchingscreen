@@ -43,6 +43,19 @@ SMTP_PASSWORD=change-me
 
 Then add recipients on the comms tab.
 
+## Webhook
+
+Set `WEBHOOK_URL` to post every alert an alert rule raises to one URL, alongside any email:
+
+```env
+WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
+```
+
+- Discord and Slack webhook URLs get their native JSON format
+- any other URL (ntfy, n8n, Home Assistant, ...) gets a plain-text POST with a `Title` header
+- the URL can also be mounted as a file at `/run/secrets/webhook_url`
+- the URL is never stored in the database or returned by the API, since it contains a token
+
 ## Alerts
 
 - alert rules use `X failures in Y minutes`

@@ -4,7 +4,7 @@ from datetime import timedelta
 from flask import jsonify, request
 
 from common import app, get_db, get_json_object, iso, now_utc, parse_int_field
-from communication import fetch_email_recipients, send_email_alert
+from communication import fetch_email_recipients, send_email_alert, send_webhook_alert
 
 
 def _safe_int(data, key, default, label):
@@ -51,16 +51,39 @@ def validate_alert_json(data):
 
 
 def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None):
-    delivered_via = "dashboard"
+    channels = []
+    failed = []
+    base_message = message
+
     try:
-        delivered_via = send_email_alert(db, check, message, alert_rule_id)
+        if send_email_alert(db, check, base_message, alert_rule_id) == "email":
+            channels.append("email")
     except Exception as exc:
+        # Log only the exception type: SMTP errors can echo credentials back.
         app.logger.error(
             "Failed to send alert email for check %s (%s)",
             check["id"],
             type(exc).__name__,
         )
-        message = f"{message} (email delivery failed)"
+        failed.append("email")
+
+    # The webhook only receives alerts raised by an alert rule, like email recipients.
+    if alert_rule_id is not None:
+        try:
+            if send_webhook_alert(check, base_message, detail):
+                channels.append("webhook")
+        except Exception as exc:
+            # Log only the exception type: request errors can include the webhook URL and its token.
+            app.logger.error(
+                "Failed to send alert webhook for check %s (%s)",
+                check["id"],
+                type(exc).__name__,
+            )
+            failed.append("webhook")
+
+    delivered_via = "+".join(channels) or "dashboard"
+    if failed:
+        message = f"{message} ({' and '.join(failed)} delivery failed)"
 
     db.execute(
         """

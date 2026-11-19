@@ -431,8 +431,8 @@ async function deleteCheck(id) {
 
 async function loadAlertSettings() {
   try {
-    const [data, comms] = await Promise.all([api('/api/alerts'), api('/api/communication')]);
-    renderAlertSettings(data.alert_settings, comms.webhooks);
+    const data = await api('/api/alerts');
+    renderAlertSettings(data.alert_settings);
   } catch (err) {
     flash(err.message, 'error');
   }
@@ -443,11 +443,14 @@ function chips(csv, emptyText) {
   return '<div class="chips">' + csv.split(',').map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('') + '</div>';
 }
 
-function renderAlertSettings(settings, webhooks) {
-  const active = (webhooks || []).filter(w => w.enabled);
-  const notifies = active.length
-    ? `<div class="chips">${active.map(w => `<span class="chip" title="${esc(w.name)}">${esc(w.name)}</span>`).join('')}</div>`
-    : '<span class="chip-none">Nobody (dashboard only)</span>';
+function notifiesChips(webhooks) {
+  if (!webhooks || !webhooks.length) return '<span class="chip-none">Dashboard only</span>';
+  return '<div class="chips">' + webhooks.map(w =>
+    `<span class="chip ${w.enabled ? '' : 'chip-off'}" title="${esc(w.name)}${w.enabled ? '' : ' (switched off)'}">${esc(w.name)}</span>`
+  ).join('') + '</div>';
+}
+
+function renderAlertSettings(settings) {
   const area = document.getElementById('alert-settings-area');
   if (!settings.length) {
     area.innerHTML = `<div class="empty-state">
@@ -471,15 +474,16 @@ function renderAlertSettings(settings, webhooks) {
     </div>
     <div class="rule-meta">
       <div><div class="rule-meta-label">Monitors · ${s.monitor_count}</div>${chips(s.monitor_names, 'No monitors')}</div>
-      <div><div class="rule-meta-label">Notifies</div>${notifies}</div>
+      <div><div class="rule-meta-label">Sends to</div>${notifiesChips(s.webhooks)}</div>
     </div>
   </article>`).join('') + '</div>';
 }
 
 async function showAlertRuleForm(id) {
   try {
-    const dashData = await api('/api/dashboard');
+    const [dashData, commsData] = await Promise.all([api('/api/dashboard'), api('/api/communication')]);
     const checks = dashData.checks;
+    const webhooks = commsData.webhooks;
 
     let rule = null;
     let selectedCheckIds = [];
@@ -494,6 +498,17 @@ async function showAlertRuleForm(id) {
         '<button type="button" onclick="closeModal()">Close</button>'));
       return;
     }
+
+    // New rules start with every enabled webhook ticked; untick them all for dashboard only.
+    const isSelected = w => rule
+      ? (w.source === 'environment' ? rule.notify_environment : (rule.webhook_ids || []).includes(w.id))
+      : w.enabled;
+    const webhookBoxes = webhooks.length
+      ? `<div class="checkbox-list">${webhooks.map(w =>
+          `<label class="checkbox-row"><input type="checkbox" name="webhooks" value="${w.source === 'environment' ? 'environment' : w.id}" ${isSelected(w) ? 'checked' : ''}>
+            <span>${esc(w.name)} <span class="subtle">· ${esc(WEBHOOK_KINDS[w.kind] || w.kind)}${w.enabled ? '' : ' · off'}</span></span></label>`
+        ).join('')}</div>`
+      : '<p class="hint">No webhooks yet. Add one on the Comms tab.</p>';
 
     const checkBoxes = checks.map(c =>
       `<label class="checkbox-row"><input type="checkbox" name="check_ids" value="${c.id}" ${selectedCheckIds.includes(c.id) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`
@@ -513,7 +528,9 @@ async function showAlertRuleForm(id) {
           </label>
         </div>
         <fieldset><legend>Monitors</legend><div class="checkbox-list">${checkBoxes}</div></fieldset>
-        <p class="hint">Alerts show on the dashboard and go to the webhook on the Comms tab.</p>
+        <fieldset><legend>Send to</legend>${webhookBoxes}
+          <p class="hint">Alerts always show on the dashboard. Leave every box unticked to send nowhere else.</p>
+        </fieldset>
       </form>`,
       `<button type="button" onclick="closeModal()">Cancel</button>
        <button type="submit" form="alert-rule-form" class="btn-primary">${rule ? 'Save changes' : 'Add rule'}</button>`));
@@ -526,11 +543,14 @@ async function saveAlertRule(e, id) {
   e.preventDefault();
   const f = e.target;
   const checkIds = [...f.querySelectorAll('input[name="check_ids"]:checked')].map(i => parseInt(i.value));
+  const hookValues = [...f.querySelectorAll('input[name="webhooks"]:checked')].map(i => i.value);
   const body = {
     name: f.elements.name.value,
     alert_failures: parseInt(f.elements.alert_failures.value),
     alert_window_minutes: parseInt(f.elements.alert_window_minutes.value),
     check_ids: checkIds,
+    webhook_ids: hookValues.filter(v => v !== 'environment').map(v => parseInt(v)),
+    notify_environment: hookValues.includes('environment'),
   };
   try {
     if (id) {
@@ -636,7 +656,7 @@ function showWebhookForm(id) {
         <select name="format">${WEBHOOK_FORMAT_OPTIONS.map(([v, label]) =>
           `<option value="${v}" ${v === fmt ? 'selected' : ''}>${label}</option>`).join('')}</select>
       </label>
-      <label class="checkbox-row"><input type="checkbox" name="enabled" ${!w || w.enabled ? 'checked' : ''}><span>Send alerts to this webhook</span></label>
+      <label class="checkbox-row"><input type="checkbox" name="enabled" ${!w || w.enabled ? 'checked' : ''}><span>On (switch off to pause every rule that uses it)</span></label>
     </form>`,
     `<button type="button" onclick="closeModal()">Cancel</button>
      <button type="submit" form="webhook-form" class="btn-primary">${w ? 'Save changes' : 'Add webhook'}</button>`));

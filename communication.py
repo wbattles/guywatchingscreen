@@ -9,8 +9,8 @@ from common import app, get_db, get_json_object, iso, now_utc
 
 
 # --- Webhooks ---
-# Every alert an alert rule raises goes to each enabled webhook: the ones added on the Comms
-# tab (stored in the database) plus WEBHOOK_URL from the environment, if set.
+# Webhooks are added on the Comms tab (stored in the database); WEBHOOK_URL from the environment
+# is one more. Each alert rule picks which of them it sends to, or none for dashboard only.
 # A webhook URL is its credential, so URLs are write-only: the API accepts them but only
 # ever returns a masked hint, never the full URL.
 
@@ -217,10 +217,30 @@ def post_webhook(url, fmt, check, message, detail=None, context=None):
     response.raise_for_status()
 
 
-def send_webhook_alerts(db, check, message, detail=None, context=None):
-    """Send to every enabled webhook. Returns (sent, failed) lists of webhook names."""
+def rule_webhook_targets(db, alert_rule_id, include_disabled=False):
+    """The webhooks an alert rule sends to: its selected webhooks, plus WEBHOOK_URL if it opted in."""
+    rows = db.execute(
+        """
+        SELECT w.*
+        FROM webhooks w
+        JOIN alert_rule_webhooks arw ON arw.webhook_id = w.id
+        WHERE arw.alert_rule_id = ?
+        ORDER BY w.name COLLATE NOCASE ASC, w.id ASC
+        """,
+        (alert_rule_id,),
+    ).fetchall()
+    targets = [{**dict(r), "source": "settings"} for r in rows if include_disabled or r["enabled"]]
+    rule = db.execute("SELECT notify_environment FROM alert_rules WHERE id = ?", (alert_rule_id,)).fetchone()
+    env = env_webhook()
+    if env and rule is not None and rule["notify_environment"]:
+        targets.append(env)
+    return targets
+
+
+def send_webhook_alerts(db, alert_rule_id, check, message, detail=None, context=None):
+    """Send to the rule's enabled webhooks. Returns (sent, failed) lists of webhook names."""
     sent, failed = [], []
-    for target in webhook_targets(db):
+    for target in rule_webhook_targets(db, alert_rule_id):
         try:
             post_webhook(target["url"], target["format"], check, message, detail, context)
             sent.append(target["name"])
@@ -312,6 +332,7 @@ def api_delete_webhook(webhook_id):
     db = get_db()
     if _fetch_webhook(db, webhook_id) is None:
         return jsonify({"error": "Webhook not found."}), 404
+    db.execute("DELETE FROM alert_rule_webhooks WHERE webhook_id = ?", (webhook_id,))
     db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
     db.commit()
     return jsonify({"ok": True})

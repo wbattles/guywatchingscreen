@@ -121,6 +121,15 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            -- Which webhooks each alert rule sends to. No rows means dashboard only.
+            CREATE TABLE IF NOT EXISTS alert_rule_webhooks (
+                alert_rule_id INTEGER NOT NULL,
+                webhook_id INTEGER NOT NULL,
+                PRIMARY KEY (alert_rule_id, webhook_id),
+                FOREIGN KEY (alert_rule_id) REFERENCES alert_rules (id),
+                FOREIGN KEY (webhook_id) REFERENCES webhooks (id)
+            );
+
             -- Email alerts were removed; drop their tables from older databases.
             DROP TABLE IF EXISTS alert_rule_email_recipients;
             DROP TABLE IF EXISTS communication_email_recipients;
@@ -138,6 +147,11 @@ def init_db():
                 ON alerts (created_at DESC);
             """
         )
+        # WEBHOOK_URL from the environment has no webhooks row, so rules opt in with a flag.
+        # Rules that existed before per-rule webhooks sent to it, so they default to on.
+        rule_columns = {row[1] for row in cursor.execute("PRAGMA table_info(alert_rules)")}
+        if "notify_environment" not in rule_columns:
+            cursor.execute("ALTER TABLE alert_rules ADD COLUMN notify_environment INTEGER NOT NULL DEFAULT 1")
         db.commit()
     db.close()
 

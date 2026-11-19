@@ -52,7 +52,9 @@ All settings come from the environment (or `.env`).
 
 ## Webhook alerts
 
-Alerts always show on the dashboard. To also send them somewhere, open the **Comms** tab and click **Add webhook**: give it a name, paste the webhook URL, and click **Send test**. Every enabled webhook gets every alert an alert rule raises. Each webhook can be edited, switched off or deleted.
+Alerts always show on the dashboard. To also send them somewhere, open the **Comms** tab and click **Add webhook**: give it a name, paste the webhook URL, and click **Send test**. Add as many as you like, such as one per Discord channel. Each can be edited, switched off or deleted.
+
+Each alert rule picks which webhooks it sends to under **Send to**, or none for dashboard only.
 
 Webhook URLs work like passwords, so they're write-only: once saved, the page and API only show a hint like `discord.com/…7tDl`. To change one, paste a new URL when editing; leaving it blank keeps the current one.
 
@@ -108,10 +110,10 @@ curl -X POST http://127.0.0.1:5000/api/checks \
   -H 'Content-Type: application/json' \
   -d '{"name": "My API", "url": "https://example.com/health", "frequency_minutes": 5, "timeout_seconds": 10}'
 
-# Alert when this monitor fails once in 15 minutes
+# Alert webhook 1 when this monitor fails once in 15 minutes
 curl -X POST http://127.0.0.1:5000/api/alert-rules \
   -H 'Content-Type: application/json' \
-  -d '{"name": "prod down", "alert_failures": 1, "alert_window_minutes": 15, "check_ids": [1]}'
+  -d '{"name": "prod down", "alert_failures": 1, "alert_window_minutes": 15, "check_ids": [1], "webhook_ids": [1]}'
 ```
 
 | Method and path | What it does |
@@ -121,7 +123,7 @@ curl -X POST http://127.0.0.1:5000/api/alert-rules \
 | `GET`, `PUT` or `DELETE /api/checks/<id>` | Read, replace or delete a monitor |
 | `POST /api/checks/<id>/run` | Run a check now |
 | `GET /api/alerts` | List alert rules |
-| `POST /api/alert-rules` | Add a rule: `name`, `alert_failures` (default 3), `alert_window_minutes` (default 15), `check_ids` |
+| `POST /api/alert-rules` | Add a rule: `name`, `alert_failures` (default 3), `alert_window_minutes` (default 15), `check_ids`, `webhook_ids` (none means dashboard only), `notify_environment` (send to `WEBHOOK_URL`) |
 | `GET`, `PUT` or `DELETE /api/alert-rules/<id>` | Read, replace or delete a rule |
 | `GET` or `DELETE /api/alerts/<id>` | Read or delete one alert |
 | `POST /api/alerts/clear` | Delete all alerts |

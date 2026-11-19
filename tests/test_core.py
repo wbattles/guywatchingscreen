@@ -106,6 +106,8 @@ class TestSchedulerClaims(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
+        db.execute("DELETE FROM alert_rule_webhooks")
+        db.execute("DELETE FROM webhooks")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
@@ -147,6 +149,8 @@ class TestAlertDelivery(unittest.TestCase):
         db = get_db()
         db.execute("DELETE FROM alert_rule_states")
         db.execute("DELETE FROM alert_rule_checks")
+        db.execute("DELETE FROM alert_rule_webhooks")
+        db.execute("DELETE FROM webhooks")
         db.execute("DELETE FROM alerts")
         db.execute("DELETE FROM check_results")
         db.execute("DELETE FROM alert_rules")
@@ -155,6 +159,13 @@ class TestAlertDelivery(unittest.TestCase):
 
     def tearDown(self):
         self.ctx.pop()
+
+    def _insert_rule(self, db, notify_environment=1):
+        cursor = db.execute(
+            "INSERT INTO alert_rules (name, alert_failures, alert_window_minutes, created_at, notify_environment) VALUES (?, ?, ?, ?, ?)",
+            ("prod", 1, 15, "2026-01-01T00:00:00", notify_environment),
+        )
+        return cursor.lastrowid
 
     def _insert_check(self, db):
         db.execute(
@@ -172,10 +183,11 @@ class TestAlertDelivery(unittest.TestCase):
 
         db = get_db()
         check = self._insert_check(db)
+        rule_id = self._insert_rule(db)
         hook = "https://discord.com/api/webhooks/1/token"
         with patch.dict(os.environ, {"WEBHOOK_URL": hook}), patch("communication.requests.post") as post:
             alerts.create_alert(
-                db, check, "failure", "Example is down", alert_rule_id=7,
+                db, check, "failure", "Example is down", alert_rule_id=rule_id,
                 detail="Got HTTP 500 Internal Server Error, expected 200",
                 context={"rule_name": "prod", "failures": 2, "window_minutes": 15, "threshold": 1},
             )
@@ -203,11 +215,12 @@ class TestAlertDelivery(unittest.TestCase):
 
         db = get_db()
         check = self._insert_check(db)
+        rule_id = self._insert_rule(db)
         hook = "https://discord.com/api/webhooks/1/super-secret-token"
         with self.assertLogs("common", level="ERROR") as logs:
             with patch.dict(os.environ, {"WEBHOOK_URL": hook}), \
                  patch("communication.requests.post", side_effect=RuntimeError(f"failed {hook}")):
-                alerts.create_alert(db, check, "failure", "Base message", alert_rule_id=7)
+                alerts.create_alert(db, check, "failure", "Base message", alert_rule_id=rule_id)
 
         alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
         self.assertEqual(alert["message"], "Base message (webhook delivery failed: Environment (WEBHOOK_URL))")
@@ -220,12 +233,13 @@ class TestAlertDelivery(unittest.TestCase):
 
         db = get_db()
         check = self._insert_check(db)
+        rule_id = self._insert_rule(db)
         with patch.dict(os.environ, {"WEBHOOK_URL": "https://ntfy.sh/topic"}), patch("communication.requests.post") as post:
             alerts.create_alert(db, check, "failure", "No rule")
         post.assert_not_called()
         env = {k: v for k, v in os.environ.items() if k != "WEBHOOK_URL"}
         with patch.dict(os.environ, env, clear=True), patch("communication.requests.post") as post:
-            alerts.create_alert(db, check, "failure", "No url", alert_rule_id=7)
+            alerts.create_alert(db, check, "failure", "No url", alert_rule_id=rule_id)
         post.assert_not_called()
 
     def test_communication_api_does_not_leak_webhook_url(self):

@@ -500,6 +500,7 @@ h2 { font-size: 14px; }
   white-space: nowrap;
 }
 .chip-none { color: var(--faint); font-size: 12.5px; }
+.chip-off { opacity: 0.55; text-decoration: line-through; }
 
 /* ---------- comms ---------- */
 

@@ -121,6 +121,11 @@ def init_db():
                 created_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
             -- Which webhooks each alert rule sends to. No rows means dashboard only.
             CREATE TABLE IF NOT EXISTS alert_rule_webhooks (
                 alert_rule_id INTEGER NOT NULL,

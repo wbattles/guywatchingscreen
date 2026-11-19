@@ -431,8 +431,8 @@ async function deleteCheck(id) {
 
 async function loadAlertSettings() {
   try {
-    const [data, comms] = await Promise.all([api('/api/alerts'), api('/api/communication')]);
-    renderAlertSettings(data.alert_settings, comms.webhook);
+    const data = await api('/api/alerts');
+    renderAlertSettings(data.alert_settings);
   } catch (err) {
     flash(err.message, 'error');
   }
@@ -443,10 +443,14 @@ function chips(csv, emptyText) {
   return '<div class="chips">' + csv.split(',').map(n => `<span class="chip" title="${esc(n)}">${esc(n)}</span>`).join('') + '</div>';
 }
 
-function renderAlertSettings(settings, webhook) {
-  const notifies = webhook && webhook.configured
-    ? `<div class="chips"><span class="chip">${esc(WEBHOOK_KINDS[webhook.kind] || 'Webhook')}</span></div>`
-    : '<span class="chip-none">Nobody (dashboard only)</span>';
+function notifiesChips(webhooks) {
+  if (!webhooks || !webhooks.length) return '<span class="chip-none">Dashboard only</span>';
+  return '<div class="chips">' + webhooks.map(w =>
+    `<span class="chip ${w.enabled ? '' : 'chip-off'}" title="${esc(w.name)}${w.enabled ? '' : ' (switched off)'}">${esc(w.name)}</span>`
+  ).join('') + '</div>';
+}
+
+function renderAlertSettings(settings) {
   const area = document.getElementById('alert-settings-area');
   if (!settings.length) {
     area.innerHTML = `<div class="empty-state">
@@ -470,15 +474,16 @@ function renderAlertSettings(settings, webhook) {
     </div>
     <div class="rule-meta">
       <div><div class="rule-meta-label">Monitors · ${s.monitor_count}</div>${chips(s.monitor_names, 'No monitors')}</div>
-      <div><div class="rule-meta-label">Notifies</div>${notifies}</div>
+      <div><div class="rule-meta-label">Sends to</div>${notifiesChips(s.webhooks)}</div>
     </div>
   </article>`).join('') + '</div>';
 }
 
 async function showAlertRuleForm(id) {
   try {
-    const dashData = await api('/api/dashboard');
+    const [dashData, commsData] = await Promise.all([api('/api/dashboard'), api('/api/communication')]);
     const checks = dashData.checks;
+    const webhooks = commsData.webhooks;
 
     let rule = null;
     let selectedCheckIds = [];
@@ -493,6 +498,17 @@ async function showAlertRuleForm(id) {
         '<button type="button" onclick="closeModal()">Close</button>'));
       return;
     }
+
+    // New rules start with every enabled webhook ticked; untick them all for dashboard only.
+    const isSelected = w => rule
+      ? (w.source === 'environment' ? rule.notify_environment : (rule.webhook_ids || []).includes(w.id))
+      : w.enabled;
+    const webhookBoxes = webhooks.length
+      ? `<div class="checkbox-list">${webhooks.map(w =>
+          `<label class="checkbox-row"><input type="checkbox" name="webhooks" value="${w.source === 'environment' ? 'environment' : w.id}" ${isSelected(w) ? 'checked' : ''}>
+            <span>${esc(w.name)} <span class="subtle">· ${esc(WEBHOOK_KINDS[w.kind] || w.kind)}${w.enabled ? '' : ' · off'}</span></span></label>`
+        ).join('')}</div>`
+      : '<p class="hint">No webhooks yet. Add one on the Comms tab.</p>';
 
     const checkBoxes = checks.map(c =>
       `<label class="checkbox-row"><input type="checkbox" name="check_ids" value="${c.id}" ${selectedCheckIds.includes(c.id) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`
@@ -512,7 +528,9 @@ async function showAlertRuleForm(id) {
           </label>
         </div>
         <fieldset><legend>Monitors</legend><div class="checkbox-list">${checkBoxes}</div></fieldset>
-        <p class="hint">Alerts show on the dashboard and go to the webhook on the Comms tab.</p>
+        <fieldset><legend>Send to</legend>${webhookBoxes}
+          <p class="hint">Alerts always show on the dashboard. Leave every box unticked to send nowhere else.</p>
+        </fieldset>
       </form>`,
       `<button type="button" onclick="closeModal()">Cancel</button>
        <button type="submit" form="alert-rule-form" class="btn-primary">${rule ? 'Save changes' : 'Add rule'}</button>`));
@@ -525,11 +543,14 @@ async function saveAlertRule(e, id) {
   e.preventDefault();
   const f = e.target;
   const checkIds = [...f.querySelectorAll('input[name="check_ids"]:checked')].map(i => parseInt(i.value));
+  const hookValues = [...f.querySelectorAll('input[name="webhooks"]:checked')].map(i => i.value);
   const body = {
     name: f.elements.name.value,
     alert_failures: parseInt(f.elements.alert_failures.value),
     alert_window_minutes: parseInt(f.elements.alert_window_minutes.value),
     check_ids: checkIds,
+    webhook_ids: hookValues.filter(v => v !== 'environment').map(v => parseInt(v)),
+    notify_environment: hookValues.includes('environment'),
   };
   try {
     if (id) {
@@ -562,29 +583,130 @@ async function deleteAlertRule(id) {
 // COMMS TAB
 // ========================
 
+let WEBHOOKS = [];
+
 async function loadCommunication() {
   try {
     const data = await api('/api/communication');
-    renderWebhookSetup(data.webhook);
+    WEBHOOKS = data.webhooks;
+    renderWebhooks(WEBHOOKS);
   } catch (err) {
     flash(err.message, 'error');
   }
 }
 
 const WEBHOOK_KINDS = { discord: 'Discord', slack: 'Slack-style text', teams: 'Microsoft Teams', ntfy: 'ntfy', json: 'JSON' };
+const WEBHOOK_FORMAT_OPTIONS = [
+  ['auto', 'Detect from URL'],
+  ['discord', 'Discord'],
+  ['slack', 'Slack, Google Chat, classic Teams'],
+  ['teams', 'Teams Workflows (Adaptive Card)'],
+  ['ntfy', 'ntfy'],
+  ['json', 'JSON (anything else)'],
+];
 
-function renderWebhookSetup(webhook) {
-  const area = document.getElementById('webhook-setup-area');
-  if (!webhook || !webhook.configured) {
-    area.innerHTML = `<p class="empty">No webhook set. Set <span class="mono">WEBHOOK_URL</span> in the environment
-      to post every alert to Discord, Slack, Teams, ntfy or any URL.</p>`;
+function renderWebhooks(webhooks) {
+  const area = document.getElementById('webhooks-area');
+  if (!webhooks.length) {
+    area.innerHTML = `<div class="empty-state">
+      <h3>No webhooks yet</h3>
+      <p>Use Add webhook above to send alerts to Discord, Slack, Teams, ntfy or any URL.</p>
+    </div>`;
     return;
   }
-  area.innerHTML = `<dl class="kv">
-    <div class="kv-row"><dt>Status</dt><dd><span class="badge badge-up">On</span></dd></div>
-    <div class="kv-row"><dt>Type</dt><dd>${esc(WEBHOOK_KINDS[webhook.kind] || webhook.kind)}</dd></div>
-    <div class="kv-row"><dt>Sends</dt><dd>Every alert from an alert rule</dd></div>
-  </dl>`;
+  area.innerHTML = '<div class="webhook-list">' + webhooks.map(w => {
+    const fromEnv = w.source === 'environment';
+    const testArg = fromEnv ? "'environment'" : w.id;
+    return `<article class="card webhook ${w.enabled ? '' : 'webhook-off'}">
+      <div class="webhook-main">
+        <div class="webhook-title">
+          <h3>${esc(w.name)}</h3>
+          <span class="badge ${w.enabled ? 'badge-up' : ''}">${w.enabled ? 'On' : 'Off'}</span>
+        </div>
+        <div class="webhook-meta">
+          <span>${esc(WEBHOOK_KINDS[w.kind] || w.kind)}${w.format === 'auto' && !fromEnv ? ' <span class="subtle">(detected)</span>' : ''}</span>
+          <span class="mono" title="Webhook URLs are hidden because they contain a token">${esc(w.url_hint)}</span>
+          ${fromEnv ? '<span class="subtle">Set in the environment; change it there</span>' : ''}
+        </div>
+      </div>
+      <div class="monitor-actions">
+        <button class="btn btn-sm" onclick="testWebhook(${testArg}, this)">Send test</button>
+        ${fromEnv ? '' : `
+          <button class="icon-btn" onclick="showWebhookForm(${w.id})" title="Edit" aria-label="Edit ${esc(w.name)}">${ICONS.edit}</button>
+          <button class="icon-btn" onclick="deleteWebhook(${w.id})" title="Delete" aria-label="Delete ${esc(w.name)}">${ICONS.trash}</button>`}
+      </div>
+    </article>`;
+  }).join('') + '</div>';
+}
+
+function showWebhookForm(id) {
+  const w = id ? WEBHOOKS.find(x => x.source === 'settings' && x.id === id) : null;
+  const fmt = w ? w.format : 'auto';
+  openModal(modalShell(w ? 'Edit webhook' : 'Add webhook', `
+    <form id="webhook-form" class="stack" onsubmit="saveWebhook(event, ${id || 'null'})">
+      <label class="field"><span>Name</span>
+        <input name="name" type="text" maxlength="40" value="${esc(w ? w.name : '')}" placeholder="Discord #alerts" required>
+      </label>
+      <label class="field"><span>Webhook URL</span>
+        <input name="url" type="url" autocomplete="off" spellcheck="false"
+          placeholder="${w ? `Leave blank to keep ${esc(w.url_hint)}` : 'https://discord.com/api/webhooks/…'}" ${w ? '' : 'required'}>
+      </label>
+      <p class="hint">The URL is saved but never shown again, since it works like a password.</p>
+      <label class="field"><span>Format</span>
+        <select name="format">${WEBHOOK_FORMAT_OPTIONS.map(([v, label]) =>
+          `<option value="${v}" ${v === fmt ? 'selected' : ''}>${label}</option>`).join('')}</select>
+      </label>
+      <label class="checkbox-row"><input type="checkbox" name="enabled" ${!w || w.enabled ? 'checked' : ''}><span>On (switch off to pause every rule that uses it)</span></label>
+    </form>`,
+    `<button type="button" onclick="closeModal()">Cancel</button>
+     <button type="submit" form="webhook-form" class="btn-primary">${w ? 'Save changes' : 'Add webhook'}</button>`));
+}
+
+async function saveWebhook(e, id) {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    name: f.elements.name.value,
+    url: f.elements.url.value,
+    format: f.elements.format.value,
+    enabled: f.elements.enabled.checked,
+  };
+  try {
+    if (id) {
+      await api(`/api/webhooks/${id}`, jsonOpts('PUT', body));
+      flash('Webhook updated.');
+    } else {
+      await api('/api/webhooks', jsonOpts('POST', body));
+      flash('Webhook added. Send a test to check it.');
+    }
+    closeModal();
+    loadCommunication();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
+}
+
+async function deleteWebhook(id) {
+  if (!await showConfirm('Delete this webhook? Alerts will stop going to it.', 'Delete')) return;
+  try {
+    await api(`/api/webhooks/${id}`, { method: 'DELETE' });
+    flash('Webhook deleted.');
+    loadCommunication();
+  } catch (err) {
+    flash(err.message, 'error');
+  }
+}
+
+async function testWebhook(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    await api(`/api/webhooks/${id}/test`, { method: 'POST' });
+    flash('Test sent. Check the channel.');
+  } catch (err) {
+    flash(err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send test'; }
+  }
 }
 
 // ========================

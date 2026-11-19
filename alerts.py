@@ -4,7 +4,7 @@ from datetime import timedelta
 from flask import jsonify, request
 
 from common import app, get_db, get_json_object, iso, now_utc, parse_int_field
-from communication import send_webhook_alert
+from communication import rule_webhook_targets, send_webhook_alerts
 
 
 def _safe_int(data, key, default, label):
@@ -30,6 +30,9 @@ def validate_alert_json(data):
     alert_failures = _safe_int(data, "alert_failures", 3, "Alert failures")
     alert_window_minutes = _safe_int(data, "alert_window_minutes", 15, "Alert window")
     check_ids = _int_list(data.get("check_ids"))
+    # Webhooks this rule sends to. None selected means dashboard only.
+    webhook_ids = _int_list(data.get("webhook_ids"))
+    notify_environment = bool(data.get("notify_environment", False))
 
     if not name:
         raise ValueError("Name is required.")
@@ -45,24 +48,20 @@ def validate_alert_json(data):
         "alert_failures": alert_failures,
         "alert_window_minutes": alert_window_minutes,
         "check_ids": check_ids,
+        "webhook_ids": webhook_ids,
+        "notify_environment": 1 if notify_environment else 0,
     }
 
 
 def create_alert(db, check, alert_type, message, alert_rule_id=None, detail=None, context=None):
     delivered_via = "dashboard"
-    # The webhook only receives alerts raised by an alert rule.
+    # Webhooks only receive alerts raised by an alert rule, and only the ones that rule selects.
     if alert_rule_id is not None:
-        try:
-            if send_webhook_alert(check, message, detail, context):
-                delivered_via = "webhook"
-        except Exception as exc:
-            # Log only the exception type: request errors can include the webhook URL and its token.
-            app.logger.error(
-                "Failed to send alert webhook for check %s (%s)",
-                check["id"],
-                type(exc).__name__,
-            )
-            message = f"{message} (webhook delivery failed)"
+        sent, failed = send_webhook_alerts(db, alert_rule_id, check, message, detail, context)
+        if sent:
+            delivered_via = "webhook"
+        if failed:
+            message = f"{message} (webhook delivery failed: {', '.join(failed)})"
 
     db.execute(
         """
@@ -117,21 +116,30 @@ def set_alert_rule_state(db, alert_rule_id, check_id, is_active):
 
 def alert_settings_data():
     db = get_db()
-    return db.execute(
+    rules = db.execute(
         """
         SELECT ar.id,
                ar.name,
                ar.alert_failures,
                ar.alert_window_minutes,
+               ar.notify_environment,
                COUNT(DISTINCT arc.check_id) AS monitor_count,
                GROUP_CONCAT(DISTINCT c.name) AS monitor_names
         FROM alert_rules ar
         LEFT JOIN alert_rule_checks arc ON arc.alert_rule_id = ar.id
         LEFT JOIN checks c ON c.id = arc.check_id
-        GROUP BY ar.id, ar.name, ar.alert_failures, ar.alert_window_minutes
+        GROUP BY ar.id, ar.name, ar.alert_failures, ar.alert_window_minutes, ar.notify_environment
         ORDER BY ar.name COLLATE NOCASE ASC
         """
     ).fetchall()
+    result = []
+    for rule in rules:
+        targets = rule_webhook_targets(db, rule["id"], include_disabled=True)
+        result.append({
+            **{k: rule[k] for k in rule.keys() if k != "notify_environment"},
+            "webhooks": [{"name": t["name"], "enabled": bool(t["enabled"])} for t in targets],
+        })
+    return result
 
 
 def fetch_alert_rule(alert_rule_id):
@@ -151,6 +159,18 @@ def fetch_alert(alert_id):
         """,
         (alert_id,),
     ).fetchone()
+
+
+def alert_rule_webhook_ids(db, alert_rule_id):
+    rows = db.execute("SELECT webhook_id FROM alert_rule_webhooks WHERE alert_rule_id = ?", (alert_rule_id,)).fetchall()
+    return [row["webhook_id"] for row in rows]
+
+
+def save_rule_webhooks(db, alert_rule_id, data):
+    db.execute("DELETE FROM alert_rule_webhooks WHERE alert_rule_id = ?", (alert_rule_id,))
+    for webhook_id in data["webhook_ids"]:
+        db.execute("INSERT INTO alert_rule_webhooks (alert_rule_id, webhook_id) VALUES (?, ?)", (alert_rule_id, webhook_id))
+    db.execute("UPDATE alert_rules SET notify_environment = ? WHERE id = ?", (data["notify_environment"], alert_rule_id))
 
 
 def alert_rule_check_ids(db, alert_rule_id):
@@ -208,12 +228,13 @@ def api_create_alert_rule():
         alert_rule_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         for check_id in data["check_ids"]:
             db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+        save_rule_webhooks(db, alert_rule_id, data)
         db.commit()
-        return jsonify({"ok": True}), 201
+        return jsonify({"ok": True, "id": alert_rule_id}), 201
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Invalid monitor selection."}), 400
+        return jsonify({"error": "Invalid monitor or webhook selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>")
@@ -225,6 +246,8 @@ def api_get_alert_rule(alert_rule_id):
     return jsonify({
         **dict(rule),
         "check_ids": alert_rule_check_ids(db, alert_rule_id),
+        "webhook_ids": alert_rule_webhook_ids(db, alert_rule_id),
+        "notify_environment": bool(rule["notify_environment"]),
     })
 
 
@@ -246,6 +269,7 @@ def api_update_alert_rule(alert_rule_id):
         db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
         for check_id in data["check_ids"]:
             db.execute("INSERT INTO alert_rule_checks (alert_rule_id, check_id) VALUES (?, ?)", (alert_rule_id, check_id))
+        save_rule_webhooks(db, alert_rule_id, data)
         if data["check_ids"]:
             db.execute(
                 "DELETE FROM alert_rule_states WHERE alert_rule_id = ? AND check_id NOT IN ({})".format(
@@ -260,7 +284,7 @@ def api_update_alert_rule(alert_rule_id):
     except (ValueError, TypeError) as exc:
         return jsonify({"error": str(exc)}), 400
     except sqlite3.IntegrityError:
-        return jsonify({"error": "Invalid monitor selection."}), 400
+        return jsonify({"error": "Invalid monitor or webhook selection."}), 400
 
 
 @app.route("/api/alert-rules/<int:alert_rule_id>", methods=["DELETE"])
@@ -271,6 +295,7 @@ def api_delete_alert_rule(alert_rule_id):
         return jsonify({"error": "Alert rule not found."}), 404
     db.execute("DELETE FROM alert_rule_states WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rule_checks WHERE alert_rule_id = ?", (alert_rule_id,))
+    db.execute("DELETE FROM alert_rule_webhooks WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alerts WHERE alert_rule_id = ?", (alert_rule_id,))
     db.execute("DELETE FROM alert_rules WHERE id = ?", (alert_rule_id,))
     db.commit()

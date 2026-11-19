@@ -3,15 +3,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
-from flask import jsonify
+from flask import jsonify, request
 
-from common import app, now_utc
+from common import app, get_db, get_json_object, iso, now_utc
 
 
-# --- Webhook ---
-# Alerts go out through one webhook URL, from the environment: every alert an alert rule raises.
-# The URL usually embeds a token, so it never goes in the database
-# or out through the API; the API only reports which kind is configured.
+# --- Webhooks ---
+# Webhooks are added on the Comms tab (stored in the database); WEBHOOK_URL from the environment
+# is one more. Each alert rule picks which of them it sends to, or none for dashboard only.
+# A webhook URL is its credential, so URLs are write-only: the API accepts them but only
+# ever returns a masked hint, never the full URL.
 
 def get_webhook_url():
     secret_path = Path("/run/secrets/webhook_url")
@@ -45,17 +46,47 @@ def detect_webhook_format(url):
     return "json"
 
 
-def webhook_kind(url):
-    """WEBHOOK_FORMAT wins when set to a known format; otherwise guess from the URL."""
-    forced = os.getenv("WEBHOOK_FORMAT", "").strip().lower()
+def webhook_kind(url, fmt=None):
+    """An explicit format wins (a webhook's own setting, else WEBHOOK_FORMAT); otherwise guess from the URL."""
+    forced = (fmt if fmt not in (None, "", "auto") else os.getenv("WEBHOOK_FORMAT", "")).strip().lower()
     if forced in WEBHOOK_FORMATS:
         return forced
     return detect_webhook_format(url)
 
 
-def get_webhook_settings():
+def mask_url(url):
+    """Enough to recognise a webhook (host and last 4 characters) without exposing its token."""
+    parsed = urlparse(url)
+    tail = url.rstrip("/")[-4:]
+    return f"{parsed.hostname or '?'}/…{tail}"
+
+
+def env_webhook():
     url = get_webhook_url()
-    return {"configured": bool(url), "kind": webhook_kind(url) if url else None}
+    if not url:
+        return None
+    return {"id": None, "name": "Environment (WEBHOOK_URL)", "url": url, "format": "auto", "enabled": 1, "source": "environment"}
+
+
+def webhook_targets(db, include_disabled=False):
+    rows = db.execute("SELECT * FROM webhooks ORDER BY name COLLATE NOCASE ASC, id ASC").fetchall()
+    targets = [{**dict(r), "source": "settings"} for r in rows if include_disabled or r["enabled"]]
+    env = env_webhook()
+    if env:
+        targets.append(env)
+    return targets
+
+
+def public_webhook(target):
+    return {
+        "id": target["id"],
+        "name": target["name"],
+        "url_hint": mask_url(target["url"]),
+        "format": target["format"],
+        "kind": webhook_kind(target["url"], target["format"]),
+        "enabled": bool(target["enabled"]),
+        "source": target["source"],
+    }
 
 
 ALERT_COLOR = 0xE5484D  # red; matches the dashboard's "down" colour
@@ -153,15 +184,12 @@ def json_payload(check, message, detail=None, context=None):
     }
 
 
-def send_webhook_alert(check, message, detail=None, context=None):
-    """POST the alert to WEBHOOK_URL. Returns True when sent, False when no webhook is set."""
-    url = get_webhook_url()
-    if not url:
-        return False
+def post_webhook(url, fmt, check, message, detail=None, context=None):
+    """POST one alert to one webhook URL in the format it expects. Raises on any failure."""
     if not url.startswith(("http://", "https://")):
-        raise ValueError("WEBHOOK_URL must start with http:// or https://")
+        raise ValueError("Webhook URL must start with http:// or https://")
 
-    kind = webhook_kind(url)
+    kind = webhook_kind(url, fmt)
     headers = {"User-Agent": "guywatchingscreen"}
     if kind == "discord":
         response = requests.post(url, json=discord_payload(check, message, detail, context), headers=headers, timeout=10)
@@ -187,11 +215,150 @@ def send_webhook_alert(check, message, detail=None, context=None):
     else:
         response = requests.post(url, json=json_payload(check, message, detail, context), headers=headers, timeout=10)
     response.raise_for_status()
-    return True
+
+
+def rule_webhook_targets(db, alert_rule_id, include_disabled=False):
+    """The webhooks an alert rule sends to: its selected webhooks, plus WEBHOOK_URL if it opted in."""
+    rows = db.execute(
+        """
+        SELECT w.*
+        FROM webhooks w
+        JOIN alert_rule_webhooks arw ON arw.webhook_id = w.id
+        WHERE arw.alert_rule_id = ?
+        ORDER BY w.name COLLATE NOCASE ASC, w.id ASC
+        """,
+        (alert_rule_id,),
+    ).fetchall()
+    targets = [{**dict(r), "source": "settings"} for r in rows if include_disabled or r["enabled"]]
+    rule = db.execute("SELECT notify_environment FROM alert_rules WHERE id = ?", (alert_rule_id,)).fetchone()
+    env = env_webhook()
+    if env and rule is not None and rule["notify_environment"]:
+        targets.append(env)
+    return targets
+
+
+def send_webhook_alerts(db, alert_rule_id, check, message, detail=None, context=None):
+    """Send to the rule's enabled webhooks. Returns (sent, failed) lists of webhook names."""
+    sent, failed = [], []
+    for target in rule_webhook_targets(db, alert_rule_id):
+        try:
+            post_webhook(target["url"], target["format"], check, message, detail, context)
+            sent.append(target["name"])
+        except Exception as exc:
+            # Log only the exception type: request errors can include the webhook URL and its token.
+            app.logger.error(
+                "Failed to send alert webhook %r for check %s (%s)",
+                target["name"],
+                check["id"],
+                type(exc).__name__,
+            )
+            failed.append(target["name"])
+    return sent, failed
+
+
+def validate_webhook_json(data, require_url=True):
+    name = (data.get("name") or "").strip()
+    url = (data.get("url") or "").strip()
+    fmt = (data.get("format") or "auto").strip().lower()
+    enabled = data.get("enabled", True)
+
+    if not name:
+        raise ValueError("Name is required.")
+    if len(name) > 40:
+        raise ValueError("Name must be 40 characters or fewer.")
+    if url or require_url:
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+        if len(url) > 2000:
+            raise ValueError("URL is too long.")
+    if fmt not in ("auto", *WEBHOOK_FORMATS):
+        raise ValueError(f"Format must be one of: auto, {', '.join(WEBHOOK_FORMATS)}.")
+    return {"name": name, "url": url, "format": fmt, "enabled": 1 if enabled else 0}
+
+
+def test_alert(target):
+    check = {"id": 0, "name": "Test monitor", "url": "https://example.com/health"}
+    message = f"Test alert from guywatchingscreen to \"{target['name']}\". If you can see this, the webhook works."
+    post_webhook(target["url"], target["format"], check, message, "This is a test alert. Nothing is down.")
 
 
 # --- API routes ---
 
 @app.route("/api/communication")
 def api_communication():
-    return jsonify({"webhook": get_webhook_settings()})
+    return jsonify({"webhooks": [public_webhook(t) for t in webhook_targets(get_db(), include_disabled=True)]})
+
+
+def _fetch_webhook(db, webhook_id):
+    return db.execute("SELECT * FROM webhooks WHERE id = ?", (webhook_id,)).fetchone()
+
+
+@app.route("/api/webhooks", methods=["POST"])
+def api_create_webhook():
+    try:
+        data = validate_webhook_json(get_json_object(request))
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    db = get_db()
+    cursor = db.execute(
+        "INSERT INTO webhooks (name, url, format, enabled, created_at) VALUES (?, ?, ?, ?, ?)",
+        (data["name"], data["url"], data["format"], data["enabled"], iso(now_utc())),
+    )
+    db.commit()
+    return jsonify({"ok": True, "id": cursor.lastrowid}), 201
+
+
+@app.route("/api/webhooks/<int:webhook_id>", methods=["PUT"])
+def api_update_webhook(webhook_id):
+    db = get_db()
+    existing = _fetch_webhook(db, webhook_id)
+    if existing is None:
+        return jsonify({"error": "Webhook not found."}), 404
+    try:
+        # A blank URL keeps the current one, since the page never sees it.
+        data = validate_webhook_json(get_json_object(request), require_url=False)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    db.execute(
+        "UPDATE webhooks SET name = ?, url = ?, format = ?, enabled = ? WHERE id = ?",
+        (data["name"], data["url"] or existing["url"], data["format"], data["enabled"], webhook_id),
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/webhooks/<int:webhook_id>", methods=["DELETE"])
+def api_delete_webhook(webhook_id):
+    db = get_db()
+    if _fetch_webhook(db, webhook_id) is None:
+        return jsonify({"error": "Webhook not found."}), 404
+    db.execute("DELETE FROM alert_rule_webhooks WHERE webhook_id = ?", (webhook_id,))
+    db.execute("DELETE FROM webhooks WHERE id = ?", (webhook_id,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+def _send_test(target):
+    try:
+        test_alert(target)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+        reason = f"the webhook answered HTTP {status}" if status else type(exc).__name__
+        return jsonify({"error": f"Test failed: {reason}."}), 502
+
+
+@app.route("/api/webhooks/<int:webhook_id>/test", methods=["POST"])
+def api_test_webhook(webhook_id):
+    row = _fetch_webhook(get_db(), webhook_id)
+    if row is None:
+        return jsonify({"error": "Webhook not found."}), 404
+    return _send_test(dict(row))
+
+
+@app.route("/api/webhooks/environment/test", methods=["POST"])
+def api_test_env_webhook():
+    target = env_webhook()
+    if target is None:
+        return jsonify({"error": "WEBHOOK_URL isn't set."}), 404
+    return _send_test(target)

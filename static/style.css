@@ -500,10 +500,34 @@ h2 { font-size: 14px; }
   white-space: nowrap;
 }
 .chip-none { color: var(--faint); font-size: 12.5px; }
+.chip-off { opacity: 0.55; text-decoration: line-through; }
 
 /* ---------- comms ---------- */
 
-.comms-card { max-width: 520px; }
+.webhook-list { display: grid; gap: 12px; max-width: 760px; }
+.webhook {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+}
+.webhook-off { opacity: 0.65; }
+.webhook-main { min-width: 0; }
+.webhook-title { display: flex; align-items: center; gap: 10px; }
+.webhook-title h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.webhook-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.webhook-meta .mono { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .webhook { flex-direction: column; align-items: stretch; }
+}
 
 .kv { margin: 0; display: grid; gap: 0; }
 .kv-row {

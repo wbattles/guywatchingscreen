@@ -99,13 +99,16 @@
         <div class="page-head">
           <div>
             <h1>Comms</h1>
-            <p class="subtle">Where alerts get sent.</p>
+            <p class="subtle">Where alerts can go. Each alert rule picks which of these it sends to.</p>
+          </div>
+          <div class="page-head-actions">
+            <button class="btn btn-primary" onclick="showWebhookForm()">
+              <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              Add webhook
+            </button>
           </div>
         </div>
-        <section class="card comms-card">
-          <div class="card-head"><h2>Webhook</h2><span class="subtle small">from environment</span></div>
-          <div id="webhook-setup-area"><p class="empty">Loading…</p></div>
-        </section>
+        <div id="webhooks-area"><div class="skeleton-list"><div></div><div></div></div></div>
       </section>
 
       <footer class="page-footer">

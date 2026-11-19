@@ -41,8 +41,8 @@ All settings come from the environment (or `.env`).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `WEBHOOK_URL` | unset | Where alerts are posted. See [Webhook alerts](#webhook-alerts). |
-| `WEBHOOK_FORMAT` | picked from the URL | Force a webhook format: `discord`, `slack`, `teams`, `ntfy` or `json`. |
+| `WEBHOOK_URL` | unset | An extra webhook set outside the app. Most people add webhooks on the Comms tab instead. |
+| `WEBHOOK_FORMAT` | picked from the URL | Force the format for `WEBHOOK_URL`: `discord`, `slack`, `teams`, `ntfy` or `json`. |
 | `SECRET_KEY` | `dev-secret-key` | Flask secret key. Set a random string in production. |
 | `HOST` | `127.0.0.1` | Address to listen on. Use `0.0.0.0` in a container. |
 | `PORT` | `5000` | Port to listen on. |
@@ -52,7 +52,13 @@ All settings come from the environment (or `.env`).
 
 ## Webhook alerts
 
-Alerts always show on the dashboard. Set `WEBHOOK_URL` to also post every alert an alert rule raises:
+Alerts always show on the dashboard. To also send them somewhere, open the **Comms** tab and click **Add webhook**: give it a name, paste the webhook URL, and click **Send test**. Add as many as you like, such as one per Discord channel. Each can be edited, switched off or deleted.
+
+Each alert rule picks which webhooks it sends to under **Send to**, or none for dashboard only.
+
+Webhook URLs work like passwords, so they're write-only: once saved, the page and API only show a hint like `discord.com/…7tDl`. To change one, paste a new URL when editing; leaving it blank keeps the current one.
+
+You can also set one webhook in the environment, which shows on the Comms tab as read-only:
 
 ```env
 WEBHOOK_URL=https://discord.com/api/webhooks/<id>/<token>
@@ -68,11 +74,11 @@ The format is picked from the URL:
 | ntfy (`ntfy.sh` or a host starting with `ntfy.`) | A high-priority push with a title, the details, and a tap-through link to the URL. |
 | Anything else (Mattermost, Rocket.Chat, n8n, Home Assistant, Zapier, your own endpoint...) | JSON with `text` and `content` for chat apps, plus `title`, `error`, `monitor`, `rule` and `timestamp` fields for automations. |
 
-To choose the format yourself, for example for a self-hosted ntfy on a custom domain, set `WEBHOOK_FORMAT` to `discord`, `slack`, `teams`, `ntfy` or `json`.
+The format is picked from the URL unless you choose one when adding the webhook, which is useful for something like a self-hosted ntfy on its own domain. For `WEBHOOK_URL`, set `WEBHOOK_FORMAT` to `discord`, `slack`, `teams`, `ntfy` or `json`.
 
-The URL contains a token, so it is never stored in the database or returned by the API. The Comms tab only shows whether a webhook is set and what kind it is. You can also mount it as a file at `/run/secrets/webhook_url` instead of setting the variable.
+`WEBHOOK_URL` can also be mounted as a file at `/run/secrets/webhook_url`.
 
-**Discord setup:** in your server, open a channel's settings, then **Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**, and set it as `WEBHOOK_URL`.
+**Getting a Discord webhook URL:** in your server, open a channel's settings, then **Integrations → Webhooks → New Webhook**, then **Copy Webhook URL**.
 
 ## How checks and alerts work
 
@@ -104,10 +110,10 @@ curl -X POST http://127.0.0.1:5000/api/checks \
   -H 'Content-Type: application/json' \
   -d '{"name": "My API", "url": "https://example.com/health", "frequency_minutes": 5, "timeout_seconds": 10}'
 
-# Alert when this monitor fails once in 15 minutes
+# Alert webhook 1 when this monitor fails once in 15 minutes
 curl -X POST http://127.0.0.1:5000/api/alert-rules \
   -H 'Content-Type: application/json' \
-  -d '{"name": "prod down", "alert_failures": 1, "alert_window_minutes": 15, "check_ids": [1]}'
+  -d '{"name": "prod down", "alert_failures": 1, "alert_window_minutes": 15, "check_ids": [1], "webhook_ids": [1]}'
 ```
 
 | Method and path | What it does |
@@ -117,11 +123,14 @@ curl -X POST http://127.0.0.1:5000/api/alert-rules \
 | `GET`, `PUT` or `DELETE /api/checks/<id>` | Read, replace or delete a monitor |
 | `POST /api/checks/<id>/run` | Run a check now |
 | `GET /api/alerts` | List alert rules |
-| `POST /api/alert-rules` | Add a rule: `name`, `alert_failures` (default 3), `alert_window_minutes` (default 15), `check_ids` |
+| `POST /api/alert-rules` | Add a rule: `name`, `alert_failures` (default 3), `alert_window_minutes` (default 15), `check_ids`, `webhook_ids` (none means dashboard only), `notify_environment` (send to `WEBHOOK_URL`) |
 | `GET`, `PUT` or `DELETE /api/alert-rules/<id>` | Read, replace or delete a rule |
 | `GET` or `DELETE /api/alerts/<id>` | Read or delete one alert |
 | `POST /api/alerts/clear` | Delete all alerts |
-| `GET /api/communication` | Whether a webhook is set, and its kind |
+| `GET /api/communication` | Every webhook, with a masked URL hint |
+| `POST /api/webhooks` | Add a webhook: `name`, `url`, optional `format` (default `auto`), `enabled` |
+| `PUT` or `DELETE /api/webhooks/<id>` | Replace or delete a webhook (a blank `url` keeps the current one) |
+| `POST /api/webhooks/<id>/test` | Send a test alert (`environment` for `WEBHOOK_URL`) |
 | `GET /health` | Returns `OK` (for liveness and readiness probes) |
 
 Create endpoints return `{"ok": true}`, and errors return `{"error": "..."}` with a 4xx status.

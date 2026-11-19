@@ -209,5 +209,83 @@ class TestAlertEmailSanitization(unittest.TestCase):
         self.assertNotIn("secret-password", logs.output[0])
 
 
+    def _insert_check(self, db):
+        db.execute(
+            """
+            INSERT INTO checks (name, url, frequency_minutes, timeout_seconds, blackout_periods, created_at, next_run_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("Example", "https://example.com", 5, 10, "", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+        )
+        return db.execute("SELECT * FROM checks").fetchone()
+
+    def test_create_alert_posts_discord_webhook(self):
+        from common import get_db
+        import alerts
+
+        db = get_db()
+        check = self._insert_check(db)
+        hook = "https://discord.com/api/webhooks/1/token"
+        with patch.dict(os.environ, {"WEBHOOK_URL": hook}), patch("communication.requests.post") as post:
+            alerts.create_alert(db, check, "failure", "Example failed 1 times", alert_rule_id=7, detail="HTTP 500")
+
+        post.assert_called_once()
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], hook)
+        self.assertIn("Example failed 1 times", kwargs["json"]["content"])
+        self.assertIn("HTTP 500", kwargs["json"]["content"])
+        self.assertEqual(kwargs["json"]["allowed_mentions"], {"parse": []})
+        alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
+        self.assertEqual(alert["delivered_via"], "webhook")
+        self.assertEqual(alert["message"], "Example failed 1 times")
+
+    def test_create_alert_webhook_failure_hides_url(self):
+        from common import get_db
+        import alerts
+
+        db = get_db()
+        check = self._insert_check(db)
+        hook = "https://discord.com/api/webhooks/1/super-secret-token"
+        with self.assertLogs("common", level="ERROR") as logs:
+            with patch.dict(os.environ, {"WEBHOOK_URL": hook}), \
+                 patch("communication.requests.post", side_effect=RuntimeError(f"failed {hook}")):
+                alerts.create_alert(db, check, "failure", "Base message", alert_rule_id=7)
+
+        alert = db.execute("SELECT message, delivered_via FROM alerts").fetchone()
+        self.assertEqual(alert["message"], "Base message (webhook delivery failed)")
+        self.assertEqual(alert["delivered_via"], "dashboard")
+        self.assertNotIn("super-secret-token", logs.output[0])
+
+    def test_webhook_skipped_without_rule_or_url(self):
+        from common import get_db
+        import alerts
+
+        db = get_db()
+        check = self._insert_check(db)
+        with patch.dict(os.environ, {"WEBHOOK_URL": "https://ntfy.sh/topic"}), patch("communication.requests.post") as post:
+            alerts.create_alert(db, check, "failure", "No rule")
+        post.assert_not_called()
+        env = {k: v for k, v in os.environ.items() if k != "WEBHOOK_URL"}
+        with patch.dict(os.environ, env, clear=True), patch("communication.requests.post") as post:
+            alerts.create_alert(db, check, "failure", "No url", alert_rule_id=7)
+        post.assert_not_called()
+
+    def test_communication_api_does_not_leak_webhook_url(self):
+        hook = "https://discord.com/api/webhooks/1/super-secret-token"
+        with patch.dict(os.environ, {"WEBHOOK_URL": hook}):
+            resp = self.app.test_client().get("/api/communication")
+        self.assertEqual(resp.get_json()["webhook"], {"configured": True, "kind": "discord"})
+        self.assertNotIn(b"super-secret-token", resp.data)
+
+
+class TestWebhookKind(unittest.TestCase):
+    def test_kinds(self):
+        from communication import webhook_kind
+        self.assertEqual(webhook_kind("https://discord.com/api/webhooks/1/x"), "discord")
+        self.assertEqual(webhook_kind("https://canary.discord.com/api/webhooks/1/x"), "discord")
+        self.assertEqual(webhook_kind("https://hooks.slack.com/services/x"), "slack")
+        self.assertEqual(webhook_kind("https://ntfy.sh/topic"), "generic")
+        self.assertEqual(webhook_kind("https://discord.com.evil.example/x"), "generic")
+
 if __name__ == "__main__":
     unittest.main()

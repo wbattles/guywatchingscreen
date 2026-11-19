@@ -232,8 +232,7 @@ function renderChecks() {
   if (!CHECKS.length) {
     area.innerHTML = `<div class="empty-state">
       <h3>Nothing on screen yet</h3>
-      <p>Add a website and the guy will start watching it.</p>
-      <button class="btn btn-primary" onclick="showCheckForm()">Add monitor</button>
+      <p>Use Add monitor above and the guy will start watching it.</p>
     </div>`;
     return;
   }
@@ -576,11 +575,28 @@ async function deleteAlertRule(id) {
 async function loadCommunication() {
   try {
     const data = await api('/api/communication');
+    renderWebhookSetup(data.webhook);
     renderEmailSetup(data.email_settings);
     renderEmailRecipients(data.email_recipients);
   } catch (err) {
     flash(err.message, 'error');
   }
+}
+
+const WEBHOOK_KINDS = { discord: 'Discord', slack: 'Slack', generic: 'Generic (plain text)' };
+
+function renderWebhookSetup(webhook) {
+  const area = document.getElementById('webhook-setup-area');
+  if (!webhook || !webhook.configured) {
+    area.innerHTML = `<p class="empty">No webhook set. Set <span class="mono">WEBHOOK_URL</span> in the environment
+      to post every alert to Discord, Slack, ntfy or any URL.</p>`;
+    return;
+  }
+  area.innerHTML = `<dl class="kv">
+    <div class="kv-row"><dt>Status</dt><dd><span class="badge badge-up">On</span></dd></div>
+    <div class="kv-row"><dt>Type</dt><dd>${esc(WEBHOOK_KINDS[webhook.kind] || webhook.kind)}</dd></div>
+    <div class="kv-row"><dt>Sends</dt><dd>Every alert from an alert rule</dd></div>
+  </dl>`;
 }
 
 function renderEmailSetup(settings) {

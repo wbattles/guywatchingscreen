@@ -242,8 +242,13 @@ class TestWebhookKind(unittest.TestCase):
         self.assertEqual(webhook_kind("https://discord.com/api/webhooks/1/x"), "discord")
         self.assertEqual(webhook_kind("https://canary.discord.com/api/webhooks/1/x"), "discord")
         self.assertEqual(webhook_kind("https://hooks.slack.com/services/x"), "slack")
-        self.assertEqual(webhook_kind("https://ntfy.sh/topic"), "generic")
-        self.assertEqual(webhook_kind("https://discord.com.evil.example/x"), "generic")
+        self.assertEqual(webhook_kind("https://ntfy.sh/topic"), "ntfy")
+        self.assertEqual(webhook_kind("https://chat.googleapis.com/v1/spaces/x/messages"), "slack")
+        self.assertEqual(webhook_kind("https://prod-01.westus.logic.azure.com/workflows/x"), "teams")
+        self.assertEqual(webhook_kind("https://n8n.example.com/webhook/x"), "json")
+        self.assertEqual(webhook_kind("https://discord.com.evil.example/x"), "json")
+        with patch.dict(os.environ, {"WEBHOOK_FORMAT": "ntfy"}):
+            self.assertEqual(webhook_kind("https://push.example.com/alerts"), "ntfy")
 
 
 class TestFailureDescriptions(unittest.TestCase):

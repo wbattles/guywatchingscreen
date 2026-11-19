@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>guywatchingscreen</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23111418'/><rect x='6' y='8' width='20' height='13' rx='2.5' fill='none' stroke='%237c6cf6' stroke-width='2.2'/><circle cx='13' cy='14.5' r='1.6' fill='%233fb950'/><circle cx='19' cy='14.5' r='1.6' fill='%233fb950'/><path d='M12 25h8' stroke='%237c6cf6' stroke-width='2.2' stroke-linecap='round'/></svg>">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2322211e'/><rect x='6' y='8' width='20' height='13' rx='2.5' fill='none' stroke='%237ea4ff' stroke-width='2.2'/><circle cx='13' cy='14.5' r='1.6' fill='%233fb950'/><circle cx='19' cy='14.5' r='1.6' fill='%233fb950'/><path d='M12 25h8' stroke='%237ea4ff' stroke-width='2.2' stroke-linecap='round'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -101,29 +101,11 @@
             <h1>Comms</h1>
             <p class="subtle">Where alerts get sent.</p>
           </div>
-          <div class="page-head-actions">
-            <button class="btn btn-primary" onclick="showEmailForm()">
-              <svg viewBox="0 0 24 24" class="icon" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              Add recipient
-            </button>
-          </div>
         </div>
-        <div class="comms-grid">
-          <div class="comms-side">
-            <section class="card">
-              <div class="card-head"><h2>Webhook</h2><span class="subtle small">from environment</span></div>
-              <div id="webhook-setup-area"><p class="empty">Loading…</p></div>
-            </section>
-            <section class="card">
-              <div class="card-head"><h2>Email setup</h2><span class="subtle small">from environment</span></div>
-              <div id="email-setup-area"><p class="empty">Loading…</p></div>
-            </section>
-          </div>
-          <section class="card">
-            <div class="card-head"><h2>Recipients</h2></div>
-            <div id="email-recipients-area"><p class="empty">Loading…</p></div>
-          </section>
-        </div>
+        <section class="card comms-card">
+          <div class="card-head"><h2>Webhook</h2><span class="subtle small">from environment</span></div>
+          <div id="webhook-setup-area"><p class="empty">Loading…</p></div>
+        </section>
       </section>
 
       <footer class="page-footer">
